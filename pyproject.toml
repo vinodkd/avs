@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axedup"
+version = "0.1.0"
+description = "Action camera footage editing and upload tool"
+requires-python = ">=3.11"
+dependencies = [
+    # CLI
+    "typer[all]>=0.12",
+
+    # Video processing
+    "ffmpeg-python>=0.2",
+    "imageio-ffmpeg>=0.5",
+    "opencv-python-headless>=4.9",
+    "scenedetect[opencv]>=0.6",
+
+    # Database
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+
+    # Filesystem
+    "watchdog>=4.0",
+
+    # Terminal output
+    "rich>=13.0",
+
+    # Phase 2 — UI and LLM (included now, used later)
+    "nicegui>=1.4",
+    "ollama>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+axedup = "axedup.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["axedup*"]
+
+[tool.setuptools.package-data]
+"axedup.presets" = ["luts/*.cube", "music/**/*.mp3"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

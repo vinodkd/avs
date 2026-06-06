@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Package install
+*.pth
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# App cache and output (user-generated, not source)
+.cache/
+~Videos/
+
+# Alembic
+# (keep alembic.ini and migrations/ — they are source)
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Test output
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS
+Thumbs.db

@@ -1,0 +1,70 @@
+# AxEdUp — Claude Code Instructions
+
+## Project Overview
+
+AxEdUp is a desktop tool for editing and uploading action camera footage. It reads video files from an SD card or local folder, analyzes them using computer vision and telemetry data, guides the user through a 3-pass review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload.
+
+See `/brainstorm/` for full design history and decision rationale.
+See `/docs/design.md` for current architecture and build plan.
+
+## Keeping Docs in Sync
+
+**This is mandatory.** Whenever you add, change, or remove a feature, data model field, CLI command, processing step, or dependency, update the relevant doc in `/docs/` before considering the task done.
+
+- `/docs/requirements.md` — update when scope changes: features added, deferred, or removed
+- `/docs/design.md` — update when architecture, tech choices, data models, pipeline steps, or CLI interface change
+
+If a code change contradicts what a doc says, the code is the truth — fix the doc to match.
+Do not defer doc updates to a separate task. Update them in the same pass as the code change.
+
+## Project Structure
+
+```
+/docs/              — requirements and design docs (keep current)
+/brainstorm/        — decision history and research (read-only reference)
+/axedup/            — Python package
+  /processing/      — ingest, telemetry, analysis, assembly, export
+  /models/          — SQLAlchemy ORM models
+  /presets/         — sport profiles, LUT files, bundled music
+  /ui/              — NiceGUI screens (Phase 2)
+  /llm/             — Ollama integration (Phase 2)
+  cli.py            — CLI entry point
+  config.py         — paths, constants, settings
+/tests/             — pytest tests for processing pipeline
+CLAUDE.md           — this file
+run.py              — convenience entry point
+```
+
+## Tech Stack
+
+- **Language:** Python 3.11+
+- **CLI:** `click` or `typer`
+- **UI (Phase 2):** NiceGUI — Python-native, browser-rendered, zero JavaScript
+- **Video processing:** ffmpeg-python + imageio-ffmpeg (bundles FFmpeg binary)
+- **Scene detection:** PySceneDetect
+- **Motion analysis:** OpenCV (cv2)
+- **Database:** SQLite via SQLAlchemy + Alembic
+- **LLM (Phase 2):** Ollama (separate install) + `ollama` Python client
+- **No GPU assumed** — all processing runs on CPU only
+- **No FastAPI, no React** — decided against for prototype; too heavy
+
+## Coding Conventions
+
+- Use `pathlib.Path` everywhere — never string path concatenation
+- All video analysis runs on 480p proxy files, not originals
+- FFmpeg calls go through `ffmpeg-python` — no manual subprocess string construction
+- Database access via SQLAlchemy ORM — no raw SQL strings
+- One processing stage per module in `/axedup/processing/`
+- Original source files are never modified
+
+## What's Out of Scope (do not build unless requirements change)
+
+- FastAPI or any HTTP server
+- React or any JavaScript frontend
+- Camera WiFi / BLE integration
+- Direct platform upload (YouTube, Instagram, etc.)
+- 360 footage (AxEdUp360)
+- Mobile / Android / iOS builds
+- Cloud processing or hosted backend
+- Multi-day trip session grouping
+- Windows or Mac builds (Linux dev first; cross-platform by design for later)

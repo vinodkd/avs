@@ -1,0 +1,533 @@
+# AxEdUp v1 — Design Document
+
+## What This Is
+
+A Python CLI tool that processes action camera footage from an SD card, automatically identifies interesting moments using computer vision and telemetry data, assembles a finished video using sport-specific presets, and exports it ready for upload. A minimal NiceGUI interface and local LLM text input are added in Phase 2 on top of the same pipeline.
+
+**Core principle:** AxEdUp is a review-and-approve tool, not a video editor. The computer does the editing; the user directs and approves. This shapes every architecture and UX decision.
+
+---
+
+## Design History and Decision Log
+
+This section captures the key debates and why we landed where we did. The `/brainstorm/` folder has the full exploration.
+
+### Why not a mobile app first?
+The 3-pass editing workflow (overview, mark, assemble) requires seeing thumbnails, reviewing clips, and watching a preview. Mobile screen real estate and processing power are constraints. The end-of-day editing session happens at a desk. Desktop first validates the workflow; mobile comes later once the core idea is proven.
+
+### Why not camera WiFi / BLE integration in v1?
+Each camera brand (GoPro, DJI, Insta360) has a different API surface. GoPro has an open API; DJI requires a licensed SDK; Insta360 has limited third-party access. SD card is universal, has zero API dependencies, and covers the end-of-day use case. Camera integrations are added later as the first source of files, not a requirement for proving the pipeline works.
+
+### Why not FastAPI + React?
+Originally designed as a local web app (FastAPI serving a React frontend in the browser). Rejected for the prototype because: two separate codebases (Python and TypeScript), heavy scaffolding before any pipeline validation, and the browser-as-desktop-app pattern feels wrong for a tool where the primary interaction is watching video. CLI first proves the pipeline; NiceGUI adds just enough UI in pure Python. FastAPI revisited only if a tablet thin-client becomes a real requirement.
+
+### Why not Electron or Tauri?
+Electron bundles ~150MB of Chromium. Tauri on Linux depends on WebKitGTK, which has known rendering issues on some distros. Both require JavaScript/TypeScript for the frontend. For a prototype on a Linux dev machine, neither is justified. If the final form factor needs a native window, Tauri is the better option at that point; for now, the browser opened by NiceGUI is sufficient.
+
+### Why not native C++ / Qt?
+FFmpeg and OpenCV are C/C++ under the hood — Python is only the orchestrator. The FFmpeg C API (libav*) is notoriously complex; most C++ video apps call the ffmpeg binary as a subprocess anyway. PySceneDetect has no C++ equivalent at the same quality. Python iteration speed is more valuable than marginal C++ performance gains at prototype stage. If profiling proves Python is the bottleneck (not the underlying C libraries), hot paths can be rewritten later.
+
+### Why not a "full" video editor UX?
+Existing tools (Premiere, DaVinci Resolve, even iMovie) present an open-ended creative canvas. AxEdUp users are not editors — they want a good video, not a masterpiece. The closest analogy is Frame.io or a review-and-approval workflow tool: the computer assembles, the user reviews. This means no timeline scrubbing, no per-clip effects panel, no keyframing. Coarse controls only: accept/reject clips, swap music, toggle overlays, change color grade style.
+
+### Why Python throughout?
+Python is the native language of the video processing ecosystem (FFmpeg, OpenCV, PySceneDetect all have mature Python bindings). Cross-platform by design: `pathlib.Path`, `imageio-ffmpeg`, `watchdog`. Runs on Linux/Mac/Windows with minimal changes. If mobile standalone processing becomes a requirement, the pipeline would need rewriting (Python is not viable on iOS; painful on Android) — but that decision can be made when mobile is a real requirement, not now.
+
+### Why Ollama for the LLM?
+Open source, runs locally, trivial to install (one command + model pull). The `ollama` Python client connects to localhost:11434. The brief-to-edit-plan task is a structured extraction problem — a 3–4B parameter model (Phi-3.5 Mini, Llama 3.2 3B) handles it well with a constrained output schema. No API cost, no data sent externally, works offline. Required as a separate install; bundling the binary and model into the app is not feasible (2–4GB model weight).
+
+### What about a future mobile app?
+Two very different architectures depending on the meaning:
+- **Tablet as thin client** (connects to desktop backend over local WiFi): the REST API we removed could be added back for this. Tablet shows the review UI; desktop does all processing. Zeroconf/mDNS for auto-discovery.
+- **Standalone mobile** (full processing on device): Python is not viable on iOS (Apple sandbox). Android Python is painful. Flutter with `ffmpeg_kit_flutter` is the most practical path — single Dart codebase, runs on iOS/Android/desktop. This would be a rewrite of the UI and a port of the pipeline logic. The SQLite data model and processing pipeline concepts transfer; the code does not.
+
+The current Python architecture does not preclude either future. It just doesn't try to solve them now.
+
+---
+
+## Architecture
+
+### Phase 1: CLI
+
+```
+axedup/
+  cli.py          ← click/typer commands
+  processing/     ← pure Python pipeline modules
+  models/         ← SQLAlchemy + SQLite
+  presets/        ← sport profiles, LUTs, music
+
+User runs:
+  python -m axedup ingest /media/SDCARD --sport mtb
+  python -m axedup analyze <session_id>
+  python -m axedup review <session_id>     ← opens static HTML in browser
+  python -m axedup assemble <session_id>
+  python -m axedup export <session_id>
+```
+
+### Phase 2: NiceGUI + Ollama
+
+```
+axedup/
+  ui/             ← NiceGUI screens (added on top of same pipeline)
+  llm/            ← Ollama client, prompt templates, response parsing
+
+User runs:
+  python -m axedup ui     ← starts NiceGUI, opens browser to localhost:XXXX
+
+Ollama runs separately:
+  ollama serve    ← started by user or by axedup on startup if not running
+```
+
+NiceGUI handles the server and browser communication internally — no FastAPI, no React, no manual WebSocket code. The same processing modules are called directly from NiceGUI event handlers.
+
+---
+
+## Technology Stack
+
+| Component | Technology | Rationale |
+|---|---|---|
+| Language | Python 3.11+ | Native ecosystem for FFmpeg/OpenCV/PySceneDetect |
+| CLI | Typer | Type-annotated, auto-generates help text, built on Click |
+| UI (Phase 2) | NiceGUI | Pure Python, browser-rendered, no JS, handles real-time updates |
+| Video processing | ffmpeg-python + imageio-ffmpeg | Bundles FFmpeg binary cross-platform; no user install |
+| Scene detection | PySceneDetect | Purpose-built, handles edge cases, clean API |
+| Motion analysis | OpenCV (cv2) | Dense optical flow; C++ performance via Python bindings |
+| Database | SQLite via SQLAlchemy | Local, serverless, ships with Python stdlib |
+| DB migrations | Alembic | Schema versioning |
+| LLM (Phase 2) | Ollama + `ollama` Python client | Local, free, offline, good 3–4B models for structured tasks |
+| LLM model | Phi-3.5 Mini (3.8B) | ~2.2GB, fast on CPU, strong structured output |
+| Filesystem watch | watchdog | Cross-platform SD card / folder detection |
+| Packaging | PyInstaller + imageio-ffmpeg | Standalone executable, no Python install for end users |
+
+---
+
+## Project Structure
+
+```
+axedup/
+├── CLAUDE.md
+├── docs/
+│   ├── requirements.md
+│   └── design.md
+├── brainstorm/                  (read-only reference)
+├── axedup/
+│   ├── __init__.py
+│   ├── __main__.py              (python -m axedup entry point)
+│   ├── cli.py                   (Typer CLI commands)
+│   ├── config.py                (paths, constants, settings)
+│   ├── processing/
+│   │   ├── __init__.py
+│   │   ├── ingest.py            (scan folder, detect camera, group chapters)
+│   │   ├── telemetry.py         (GPMF parser, SRT parser, normalization)
+│   │   ├── analysis.py          (proxy gen, thumbnails, scene detect, optical flow)
+│   │   ├── peaks.py             (candidate mark generation)
+│   │   ├── assembly.py          (FFmpeg: concat, LUT, audio mix, overlay)
+│   │   └── export.py            (final encode per aspect ratio)
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── db.py                (SQLAlchemy engine, session factory)
+│   │   ├── schema.py            (ORM models)
+│   │   └── migrations/          (Alembic)
+│   ├── presets/
+│   │   ├── sports.py            (sport profile dataclasses)
+│   │   ├── luts/                (.cube LUT files, one per grade style)
+│   │   └── music/               (royalty-free MP3s, organised by sport)
+│   ├── ui/                      (Phase 2 — NiceGUI)
+│   │   ├── __init__.py
+│   │   ├── app.py               (NiceGUI app entry point)
+│   │   ├── screens/
+│   │   │   ├── import_screen.py
+│   │   │   ├── footage_map.py
+│   │   │   ├── clip_marks.py
+│   │   │   ├── review_player.py
+│   │   │   └── export_screen.py
+│   │   └── components/          (shared NiceGUI components)
+│   └── llm/                     (Phase 2 — Ollama)
+│       ├── __init__.py
+│       ├── client.py            (Ollama connection, health check)
+│       ├── prompts.py           (system prompt, schema definition)
+│       └── parser.py            (response → edit plan struct)
+├── tests/
+│   ├── test_ingest.py
+│   ├── test_telemetry.py
+│   ├── test_analysis.py
+│   └── test_peaks.py
+├── run.py                       (convenience: python run.py [command])
+└── pyproject.toml
+```
+
+---
+
+## Data Model
+
+```sql
+-- One import session (one SD card / folder)
+CREATE TABLE sessions (
+    id              TEXT PRIMARY KEY,          -- UUID
+    created_at      DATETIME NOT NULL,
+    source_path     TEXT NOT NULL,
+    sport           TEXT,                      -- 'mtb', 'surf', 'ski', etc.
+    camera          TEXT,                      -- 'gopro', 'dji', 'insta360', 'unknown'
+    total_clips     INTEGER,
+    total_duration_s REAL,
+    status          TEXT NOT NULL              -- 'importing' | 'analyzing' | 'ready'
+                                               -- | 'assembled' | 'exported'
+);
+
+-- One row per logical video clip
+CREATE TABLE clips (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL REFERENCES sessions(id),
+    filename        TEXT NOT NULL,
+    filepath        TEXT NOT NULL,
+    proxy_path      TEXT,
+    duration_s      REAL NOT NULL,
+    width           INTEGER,
+    height          INTEGER,
+    fps             REAL,
+    codec           TEXT,
+    has_telemetry   BOOLEAN DEFAULT FALSE,
+    peak_speed_kmh  REAL,
+    peak_altitude_m REAL,
+    peak_motion     REAL,
+    scene_count     INTEGER,
+    clip_order      INTEGER NOT NULL           -- chronological position in session
+);
+
+-- Telemetry time-series (one row per second per clip)
+CREATE TABLE telemetry (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    clip_id             TEXT NOT NULL REFERENCES clips(id),
+    timestamp_s         REAL NOT NULL,
+    speed_kmh           REAL,
+    altitude_m          REAL,
+    lat                 REAL,
+    lon                 REAL,
+    accel_magnitude     REAL,
+    motion_intensity    REAL                   -- from OpenCV optical flow
+);
+
+-- Candidate and user-confirmed clip regions
+CREATE TABLE marks (
+    id              TEXT PRIMARY KEY,
+    clip_id         TEXT NOT NULL REFERENCES clips(id),
+    in_s            REAL NOT NULL,
+    out_s           REAL NOT NULL,
+    score           REAL,                      -- 0.0–1.0; null for user-added marks
+    source          TEXT NOT NULL,             -- 'telemetry_peak' | 'motion_peak'
+                                               -- | 'audio_peak' | 'user' | 'llm'
+    status          TEXT NOT NULL,             -- 'candidate' | 'accepted' | 'rejected'
+    order_in_edit   INTEGER                    -- position in final edit; null until accepted
+);
+
+-- One row per sport (user's preferences, updated over time)
+CREATE TABLE profiles (
+    id                      TEXT PRIMARY KEY,
+    sport                   TEXT NOT NULL UNIQUE,
+    color_grade             TEXT NOT NULL,     -- 'punchy'|'cinematic'|'natural'|'warm'|'cool'
+    music_energy            TEXT NOT NULL,     -- 'high'|'medium'|'chill'
+    target_duration_youtube_s INTEGER,
+    target_duration_short_s   INTEGER,
+    min_clip_s              REAL,
+    max_clip_s              REAL,
+    overlay_speed           BOOLEAN DEFAULT TRUE,
+    overlay_altitude        BOOLEAN DEFAULT TRUE,
+    overlay_gps_map         BOOLEAN DEFAULT FALSE,
+    speed_threshold_kmh     REAL,
+    motion_threshold        REAL,
+    updated_at              DATETIME
+);
+
+-- Export history
+CREATE TABLE exports (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL REFERENCES sessions(id),
+    exported_at DATETIME NOT NULL,
+    filepath    TEXT NOT NULL,
+    aspect      TEXT NOT NULL,                 -- '16:9' | '9:16'
+    duration_s  REAL
+);
+```
+
+---
+
+## CLI Interface (Phase 1)
+
+```
+python -m axedup --help
+
+Commands:
+  ingest    Scan a folder or SD card and create a session
+  analyze   Run analysis pipeline on an imported session
+  review    Open the candidate review interface (static HTML)
+  assemble  Assemble accepted marks into a preview video
+  export    Export the preview to final output files
+  sessions  List all sessions with status
+  profile   Show or update sport profile preferences
+```
+
+### Command Details
+
+```bash
+# Import footage from SD card or folder
+axedup ingest /media/SDCARD/DCIM --sport mtb
+axedup ingest ~/footage/todays-ride --sport mtb
+# → prints session ID, clip count, total duration, camera brand detected
+
+# Run analysis (can be run immediately after ingest; picks up where it left off)
+axedup analyze <session_id>
+# → progress bar per clip: proxy, thumbnails, telemetry, scene detect, optical flow
+# → prints candidate mark summary on completion
+
+# Review candidates (Pass 2)
+axedup review <session_id>
+# → generates /tmp/axedup_review_<session_id>.html and opens in default browser
+# → user checks boxes, clicks Submit
+# → CLI polls for response file, applies decisions to database
+
+# Assemble preview (Pass 3)
+axedup assemble <session_id>
+# → FFmpeg concat + LUT + audio mix + overlays
+# → opens preview with system video player on completion
+# → prints: axedup refine <session_id> --remove <mark_id> / --swap-music / etc.
+
+# Refine (re-runs assembly with changes)
+axedup refine <session_id> --remove <mark_id>
+axedup refine <session_id> --swap-music
+axedup refine <session_id> --grade cinematic
+axedup refine <session_id> --no-overlay
+
+# Export
+axedup export <session_id> --aspect 16:9 9:16
+# → outputs to ~/Videos/AxEdUp/<date>_<sport>_<aspect>.mp4
+
+# Session management
+axedup sessions               # list all
+axedup sessions --status ready  # filter by status
+```
+
+---
+
+## Processing Pipeline
+
+### Stage 1 — Ingest (`processing/ingest.py`)
+
+```
+scan directory for .MP4, .MOV files
+  exclude: .LRV (GoPro proxy), .THM, files under 5 seconds
+
+detect camera brand per file:
+  filename: GH/GX/GOPR → gopro | DJI_ → dji | VID_ → insta360
+  fallback: ffprobe container metadata (make/model tags)
+
+group GoPro chapters:
+  GH010001.MP4 + GH020001.MP4 → one logical clip
+  match: same base prefix + sequential chapter number
+
+for each logical clip:
+  ffprobe → duration, resolution, fps, codec, has_audio
+  check for .SRT sidecar (DJI telemetry)
+  check for GPMF metadata track (GoPro telemetry)
+  write to clips table
+
+write session record → status = 'importing'
+```
+
+### Stage 2 — Analysis (`processing/analysis.py`)
+
+Per clip, in order (resumable — skips already-completed steps based on DB state):
+
+```
+1. Proxy generation
+   ffmpeg -i {source} -vf scale=854:480 -c:v libx264 -preset ultrafast
+          -crf 28 -c:a aac -b:a 64k {cache/proxies/clip_id.mp4}
+
+2. Thumbnail extraction
+   ffmpeg -i {proxy} -vf fps=1/5 {cache/thumbs/clip_id/%04d.jpg}
+
+3. Telemetry parsing (processing/telemetry.py)
+   GoPro: extract GPMF binary track → TelemetryPoint[]
+   DJI:   parse .SRT sidecar → TelemetryPoint[]
+   Other: skip; motion_intensity only
+
+4. Scene detection
+   PySceneDetect ContentDetector(threshold=27) on proxy
+   → list of (start_s, end_s) scene tuples → stored in clips.scene_count
+
+5. Motion intensity (OpenCV)
+   Farneback dense optical flow on proxy frames (sampled every 0.5s)
+   → per-second mean magnitude → stored in telemetry.motion_intensity
+
+update clips record (peak_speed, peak_altitude, peak_motion, scene_count)
+```
+
+### Stage 3 — Peak Detection (`processing/peaks.py`)
+
+```
+for each clip:
+  load telemetry rows (speed_kmh, accel_magnitude, motion_intensity)
+  normalize each signal to [0, 1] range
+  weighted sum → combined_score[] (weights from sport profile thresholds)
+  find local maxima above threshold (scipy.signal.find_peaks or manual)
+
+  for each peak:
+    region = (peak_s - 2s pre-padding, peak_s + 5s post-padding)
+    clip to clip boundaries
+    score = max combined_score in region
+
+  merge overlapping regions
+  write to marks table (status='candidate', source='telemetry_peak'|'motion_peak')
+```
+
+### Stage 4 — Review HTML (`cli.py` + `processing/review.py`)
+
+```
+generate /tmp/axedup_review_<session_id>.html:
+  for each candidate mark (sorted by score desc):
+    <div class="card">
+      <img src="file:///cache/thumbs/clip_id/nearest_thumb.jpg">
+      <span>Clip N | {in_s}–{out_s} | score {score:.2f} | peak {peak_speed} km/h</span>
+      <input type="checkbox" name="mark_{id}" checked>
+    </div>
+  <button onclick="submit()">Apply</button>
+  <script>submit writes JSON to /tmp/axedup_review_<session_id>_response.json</script>
+
+open HTML in default browser (webbrowser.open)
+poll for response file (1s interval, 5min timeout)
+on receipt: update marks table (accepted/rejected), delete temp files
+```
+
+### Stage 5 — Assembly (`processing/assembly.py`)
+
+```
+collect accepted marks sorted by (clip.clip_order, mark.in_s)
+
+cut segments:
+  for each mark:
+    ffmpeg -ss {in_s} -to {out_s} -i {source} -c copy {tmp/mark_id.mp4}
+
+select music:
+  sport profile → presets/music/{sport}/ → random track
+
+build FFmpeg filter graph:
+  concat all segments
+  lut3d filter ← presets/luts/{grade}.cube
+  eq filter (saturation, contrast from sport profile)
+  loudnorm on original audio track
+  amix (original + music)
+  sidechaincompress (duck music under loud original audio)
+  if overlays enabled and telemetry present:
+    generate overlay video (drawtext filter: speed/altitude at timestamps)
+    overlay composite
+
+encode → cache/previews/{session_id}_preview.mp4
+  -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 192k
+```
+
+### Stage 6 — Export (`processing/export.py`)
+
+```
+for each requested aspect ratio:
+  '16:9': use preview as-is (source is 16:9)
+  '9:16': ffmpeg crop (centre crop 9:16 from 16:9) → scale 1080x1920
+
+encode per target:
+  libx264 -crf 20 -preset slow -c:a aac -b:a 192k
+
+output → ~/Videos/AxEdUp/{YYYY-MM-DD}_{sport}_{aspect}.mp4
+write exports record
+update session status = 'exported'
+```
+
+---
+
+## LLM Integration (Phase 2)
+
+### How it fits in
+
+Text brief from user → Ollama (local) → structured edit plan (JSON) → adjusts mark selections before assembly. If Ollama is not running, the pipeline falls back to automated candidate selection with no user brief.
+
+### Prompt design
+
+The LLM receives a system prompt defining its role and the output schema, plus a user message containing:
+- The brief (plain English from the user)
+- Structured session context: clip list with durations, telemetry summaries, candidate marks with scores
+
+It does **not** receive video data — only text metadata. This keeps token count low and avoids sending footage anywhere.
+
+Output is a JSON edit plan:
+```json
+{
+  "rationale": "User highlighted third clip as best...",
+  "accepted_marks": ["mark_id_3", "mark_id_7", "mark_id_12"],
+  "rejected_marks": ["mark_id_1", "mark_id_5"],
+  "target_duration_s": 480,
+  "grade_override": null,
+  "note": "Crash at end of clip 5 included as user mentioned it"
+}
+```
+
+### Model choice
+
+**Phi-3.5 Mini (3.8B)** — ~2.2GB download, runs on CPU at useful speed, strong at structured output with schema enforcement. Pull with `ollama pull phi3.5`.
+
+Fallback: **Llama 3.2 3B** (~2GB) if Phi-3.5 unavailable.
+
+---
+
+## Sport Presets
+
+Defined in `axedup/presets/sports.py` as Python dataclasses.
+
+| Sport | Grade | Music energy | Speed threshold | Motion threshold | YT duration |
+|---|---|---|---|---|---|
+| mtb | punchy | high | 25 km/h | 0.60 | 4 min |
+| surf | warm | medium | 15 km/h | 0.50 | 3 min |
+| ski | cool | high | 40 km/h | 0.65 | 4 min |
+| skydive | vibrant | high | 100 km/h | 0.70 | 2.5 min |
+| moto | cinematic | high | 60 km/h | 0.55 | 6 min |
+| trail | natural | medium | 10 km/h | 0.40 | 3 min |
+| cycling | natural | medium | 20 km/h | 0.45 | 5 min |
+
+LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punchy, warm, cool, vibrant, cinematic, natural). Music: MP3, 3–5 tracks per sport, Creative Commons licensed from Free Music Archive or ccMixter.
+
+---
+
+## Build Order
+
+### Phase 1 — Pipeline
+
+1. `pyproject.toml`, `config.py`, SQLAlchemy models + Alembic migration
+2. `processing/ingest.py` — folder scan, camera detection, chapter grouping, ffprobe
+3. `processing/telemetry.py` — GPMF parser (GoPro), SRT parser (DJI)
+4. `processing/analysis.py` — proxy gen, thumbnails, PySceneDetect, OpenCV optical flow
+5. `processing/peaks.py` — candidate mark generation
+6. `cli.py` — `ingest` and `analyze` commands; test with real Insta360 footage
+7. Review HTML generation — static page with thumbnails and checkboxes
+8. `cli.py` — `review` command
+9. `processing/assembly.py` — FFmpeg concat, LUT, audio mix
+10. `cli.py` — `assemble` and `refine` commands
+11. `processing/export.py` — multi-aspect encode
+12. `cli.py` — `export` command
+13. `presets/sports.py` — MTB preset complete (LUT + music)
+
+### Phase 2 — UI + LLM
+
+14. `llm/client.py` + `llm/prompts.py` + `llm/parser.py` — Ollama integration
+15. `cli.py` — `brief` command (text input → LLM → adjust marks → assemble)
+16. NiceGUI scaffold + Import screen
+17. NiceGUI Footage Map screen
+18. NiceGUI Clip Marks screen
+19. NiceGUI Review Player screen
+20. NiceGUI Export screen
+
+---
+
+## Open Questions
+
+1. **Proxy storage strategy:** Generate proxies eagerly at ingest or lazily on first analysis run? Eager is better UX; lazy saves disk for abandoned sessions.
+2. **GoPro chapter joining:** Virtual join (treat as one logical clip, stitch only at assembly) or physical join at ingest time (ffmpeg concat demuxer, takes time upfront)?
+3. **Music licensing:** Confirm Free Music Archive and ccMixter have appropriate CC0 / CC-BY tracks for the sports needed.
+4. **LUT sources:** Commission, adapt open-source packs, or generate via FFmpeg eq/curves parameters? Open-source LUT packs (e.g. from Lutify.me free tier) may be usable with attribution.
+5. **Scene detection threshold:** Default 27 is tuned for general content. Action footage with motion blur and fast panning may need a higher threshold. Expose as a per-sport config option.
+6. **Review HTML polling:** Polling a temp file works but is crude. Alternative: NiceGUI Phase 2 replaces the HTML approach entirely, making this a short-lived workaround.
