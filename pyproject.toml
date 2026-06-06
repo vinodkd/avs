@@ -1,21 +1,21 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "axedup"
 version = "0.1.0"
 description = "Action camera footage editing and upload tool"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     # CLI
-    "typer[all]>=0.12",
+    "typer>=0.12",
 
     # Video processing
     "ffmpeg-python>=0.2",
     "imageio-ffmpeg>=0.5",
     "opencv-python-headless>=4.9",
-    "scenedetect[opencv]>=0.6",
+    "scenedetect>=0.6",
 
     # Database
     "sqlalchemy>=2.0",
