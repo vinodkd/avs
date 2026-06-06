@@ -23,7 +23,7 @@ def main(ctx: typer.Context) -> None:
 
 @app.command()
 def ingest(
-    path: str = typer.Argument(..., help="Path to SD card or folder containing footage"),
+    path: str = typer.Argument(..., help="Path to SD card, folder, or a single video file"),
     sport: str = typer.Option(..., "--sport", "-s", help="Sport type (mtb, surf, ski, skydive, moto, trail, cycling)"),
 ) -> None:
     """Scan a folder or SD card and create a new session."""

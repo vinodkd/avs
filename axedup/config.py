@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 import imageio_ffmpeg
@@ -26,8 +27,11 @@ DB_PATH = DATA_DIR / f"{APP_NAME}.db"
 
 # --- FFmpeg ---
 
-# imageio-ffmpeg ships a pre-built binary; no system install required
+# imageio-ffmpeg ships a pre-built ffmpeg binary; no system install required
 FFMPEG_BIN = imageio_ffmpeg.get_ffmpeg_exe()
+
+# ffprobe must be available on the system (sudo apt install ffmpeg on Ubuntu)
+FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
 
 # --- Analysis defaults ---
 

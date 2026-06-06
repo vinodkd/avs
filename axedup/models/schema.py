@@ -52,6 +52,8 @@ class Clip(Base):
     peak_motion: Mapped[float | None]      = mapped_column(Float, nullable=True)
     scene_count: Mapped[int | None]        = mapped_column(Integer, nullable=True)
     clip_order: Mapped[int]                = mapped_column(Integer, nullable=False)
+    # JSON-encoded list of additional chapter file paths (GoPro only)
+    chapter_paths: Mapped[str | None]      = mapped_column(Text, nullable=True)
 
     session: Mapped["Session"]       = relationship(back_populates="clips")
     telemetry: Mapped[list["TelemetryPoint"]] = relationship(back_populates="clip", cascade="all, delete-orphan")
