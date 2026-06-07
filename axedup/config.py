@@ -17,11 +17,12 @@ DATA_DIR = Path(os.environ.get("AXEDUP_DATA_DIR", Path.home() / ".local" / "shar
 # Cache: proxies, thumbnails, previews, temp segments (safe to delete)
 CACHE_DIR = Path(os.environ.get("AXEDUP_CACHE_DIR", Path.home() / ".cache" / APP_NAME))
 
-PROXY_DIR   = CACHE_DIR / "proxies"
-THUMB_DIR   = CACHE_DIR / "thumbnails"
-PREVIEW_DIR = CACHE_DIR / "previews"
-SEGMENT_DIR = CACHE_DIR / "segments"
-REVIEW_DIR  = CACHE_DIR / "review"
+PROXY_DIR       = CACHE_DIR / "proxies"
+THUMB_DIR       = CACHE_DIR / "thumbnails"
+PREVIEW_DIR     = CACHE_DIR / "previews"
+SEGMENT_DIR     = CACHE_DIR / "segments"
+REVIEW_DIR      = CACHE_DIR / "review"
+JPEG_FRAMES_DIR = CACHE_DIR / "jpeg_frames"
 
 DB_PATH = DATA_DIR / f"{APP_NAME}.db"
 
@@ -48,5 +49,5 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "phi3.5")
 
 def ensure_dirs() -> None:
     """Create all app directories if they don't exist. Call at startup."""
-    for d in (OUTPUT_DIR, DATA_DIR, PROXY_DIR, THUMB_DIR, PREVIEW_DIR, SEGMENT_DIR, REVIEW_DIR):
+    for d in (OUTPUT_DIR, DATA_DIR, PROXY_DIR, THUMB_DIR, PREVIEW_DIR, SEGMENT_DIR, REVIEW_DIR, JPEG_FRAMES_DIR):
         d.mkdir(parents=True, exist_ok=True)

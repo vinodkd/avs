@@ -17,10 +17,13 @@ POST_PADDING_S = 5.0
 MIN_PEAK_DISTANCE_S = 4.0
 
 
-def detect_peaks(session_id: str, console=None) -> int:
+def detect_peaks(session_id: str, console=None, motion_method: str = "proxy") -> int:
     """
     Generate candidate Mark rows for every clip in *session_id*.
     Returns total number of candidates created.
+
+    motion_method: 'proxy' uses motion_intensity; 'jpg' uses motion_intensity_quick.
+    Marks are tagged 'motion_peak' or 'motion_peak_jpg' accordingly.
     """
     _log = _logger(console)
 
@@ -45,7 +48,7 @@ def detect_peaks(session_id: str, console=None) -> int:
 
     total = 0
     for clip in clips:
-        n = _detect_clip_peaks(clip, motion_threshold, console)
+        n = _detect_clip_peaks(clip, motion_threshold, console, motion_method)
         _log(f"  {clip.filename}: {n} candidate(s)")
         total += n
 
@@ -56,30 +59,40 @@ def detect_peaks(session_id: str, console=None) -> int:
 # Per-clip peak detection
 # ---------------------------------------------------------------------------
 
-def _detect_clip_peaks(clip: Clip, motion_threshold: float, console=None) -> int:
+def _detect_clip_peaks(clip: Clip, motion_threshold: float, console=None, motion_method: str = "proxy") -> int:
     """Find peaks in this clip's motion signal and write Mark candidates."""
+    source = "motion_peak_jpg" if motion_method == "jpg" else "motion_peak"
 
     with get_session() as db:
-        # Clear any existing candidates for this clip so re-runs are idempotent
+        # Clear existing candidates of this source only — preserves the other method's marks
         db.query(Mark).filter(
             Mark.clip_id == clip.id,
-            Mark.source.in_(["motion_peak", "telemetry_peak"]),
+            Mark.source == source,
         ).delete()
 
-        rows = (
-            db.query(TelemetryPoint)
-            .filter(TelemetryPoint.clip_id == clip.id)
-            .filter(TelemetryPoint.motion_intensity.isnot(None))
-            .order_by(TelemetryPoint.timestamp_s)
-            .all()
-        )
+        if motion_method == "jpg":
+            rows = (
+                db.query(TelemetryPoint)
+                .filter(TelemetryPoint.clip_id == clip.id)
+                .filter(TelemetryPoint.motion_intensity_quick.isnot(None))
+                .order_by(TelemetryPoint.timestamp_s)
+                .all()
+            )
+            intensities = [r.motion_intensity_quick for r in rows]
+        else:
+            rows = (
+                db.query(TelemetryPoint)
+                .filter(TelemetryPoint.clip_id == clip.id)
+                .filter(TelemetryPoint.motion_intensity.isnot(None))
+                .order_by(TelemetryPoint.timestamp_s)
+                .all()
+            )
+            intensities = [r.motion_intensity for r in rows]
 
     if not rows:
         return 0
 
     timestamps = [r.timestamp_s for r in rows]
-    intensities = [r.motion_intensity for r in rows]
-
     peak_indices = _find_peaks(intensities, timestamps, motion_threshold)
     if not peak_indices:
         return 0
@@ -93,7 +106,7 @@ def _detect_clip_peaks(clip: Clip, motion_threshold: float, console=None) -> int
             in_s=in_s,
             out_s=out_s,
             score=round(score, 4),
-            source="motion_peak",
+            source=source,
             status="candidate",
         )
         for in_s, out_s, score in regions

@@ -48,13 +48,16 @@ def ingest(
 @app.command()
 def analyze(
     session_id: str = typer.Argument(..., help="Session ID returned by ingest"),
+    jpg: bool = typer.Option(False, "--jpg", help="Motion via JPEG extraction (faster, adds jpg marks)"),
+    proxy: bool = typer.Option(False, "--proxy", help="Force recompute proxy-based motion"),
 ) -> None:
     """Run the full analysis pipeline on an imported session."""
     _startup()
     from axedup.processing.analysis import analyze_session
 
-    console.print(f"[bold]Analyzing session[/bold] {session_id} …")
-    analyze_session(session_id, console=console)
+    motion_method = "jpg" if jpg else "proxy"
+    console.print(f"[bold]Analyzing session[/bold] {session_id} … (motion: {motion_method})")
+    analyze_session(session_id, console=console, motion_method=motion_method)
     console.print(f"\nNext step: [bold]axedup review {session_id}[/bold]")
 
 
@@ -74,13 +77,14 @@ def review(
 @app.command()
 def assemble(
     session_id: str = typer.Argument(..., help="Session ID to assemble"),
+    source: str | None = typer.Option(None, "--source", help="Mark source to use: proxy, jpg, telemetry (default: all)"),
 ) -> None:
     """Assemble accepted marks into a preview video."""
     _startup()
     from axedup.processing.assembly import assemble_session
 
     console.print(f"[bold]Assembling session[/bold] {session_id} …")
-    assemble_session(session_id, console=console)
+    assemble_session(session_id, console=console, source_filter=source)
     console.print(f"\nNext step: [bold]axedup export {session_id}[/bold]")
 
 
@@ -91,6 +95,7 @@ def refine(
     swap_music: bool = typer.Option(False, "--swap-music", help="Use next music track"),
     grade: str | None = typer.Option(None, "--grade", help="Color grade: punchy, cinematic, natural, warm, cool, vibrant"),
     no_overlay: bool = typer.Option(False, "--no-overlay", help="Disable telemetry overlays"),
+    source: str | None = typer.Option(None, "--source", help="Mark source to use: proxy, jpg, telemetry (default: all)"),
 ) -> None:
     """Re-assemble with adjustments (remove clips, swap music, change grade)."""
     _startup()
@@ -104,6 +109,7 @@ def refine(
         swap_music=swap_music,
         grade_override=grade,
         disable_overlay=no_overlay,
+        source_filter=source,
     )
 
 

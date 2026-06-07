@@ -196,15 +196,16 @@ CREATE TABLE clips (
 
 -- Telemetry time-series (one row per second per clip)
 CREATE TABLE telemetry (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    clip_id             TEXT NOT NULL REFERENCES clips(id),
-    timestamp_s         REAL NOT NULL,
-    speed_kmh           REAL,
-    altitude_m          REAL,
-    lat                 REAL,
-    lon                 REAL,
-    accel_magnitude     REAL,
-    motion_intensity    REAL                   -- from OpenCV optical flow
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    clip_id                 TEXT NOT NULL REFERENCES clips(id),
+    timestamp_s             REAL NOT NULL,
+    speed_kmh               REAL,
+    altitude_m              REAL,
+    lat                     REAL,
+    lon                     REAL,
+    accel_magnitude         REAL,
+    motion_intensity        REAL,              -- from OpenCV optical flow on proxy (dense)
+    motion_intensity_quick  REAL               -- from JPEG frame extraction (sparse, faster)
 );
 
 -- Candidate and user-confirmed clip regions
@@ -215,7 +216,8 @@ CREATE TABLE marks (
     out_s           REAL NOT NULL,
     score           REAL,                      -- 0.0–1.0; null for user-added marks
     source          TEXT NOT NULL,             -- 'telemetry_peak' | 'motion_peak'
-                                               -- | 'audio_peak' | 'user' | 'llm'
+                                               -- | 'motion_peak_jpg' | 'audio_peak'
+                                               -- | 'user' | 'llm'
     status          TEXT NOT NULL,             -- 'candidate' | 'accepted' | 'rejected'
     order_in_edit   INTEGER                    -- position in final edit; null until accepted
 );
@@ -235,6 +237,9 @@ CREATE TABLE profiles (
     overlay_gps_map         BOOLEAN DEFAULT FALSE,
     speed_threshold_kmh     REAL,
     motion_threshold        REAL,
+    scene_detector          TEXT DEFAULT 'content',  -- 'content'|'adaptive'|'threshold'
+    scene_threshold         REAL,              -- detector-specific threshold value
+    scene_min_scene_len     INTEGER,           -- minimum scene length in frames
     updated_at              DATETIME
 );
 
@@ -275,9 +280,13 @@ axedup ingest ~/footage/todays-ride --sport mtb
 # → prints session ID, clip count, total duration, camera brand detected
 
 # Run analysis (can be run immediately after ingest; picks up where it left off)
-axedup analyze <session_id>
-# → progress bar per clip: proxy, thumbnails, telemetry, scene detect, optical flow
+axedup analyze <session_id>             # full proxy-based analysis (default)
+axedup analyze <session_id> --jpg       # faster JPEG frame extraction for motion (~15× faster)
+axedup analyze <session_id> --proxy     # explicit proxy-based motion analysis
+# → progress bar per clip: proxy, thumbnails, scene detect, motion intensity
 # → prints candidate mark summary on completion
+# Both --jpg and --proxy can be run on the same session; results are kept separately
+# and shown as separate sections in review.
 
 # Review candidates (Pass 2)
 axedup review <session_id>
@@ -286,16 +295,21 @@ axedup review <session_id>
 # → CLI polls for response file, applies decisions to database
 
 # Assemble preview (Pass 3)
-axedup assemble <session_id>
-# → FFmpeg concat + LUT + audio mix + overlays
+axedup assemble <session_id>                      # uses all accepted marks
+axedup assemble <session_id> --source jpg         # only motion_peak_jpg marks
+axedup assemble <session_id> --source proxy       # only motion_peak marks
+axedup assemble <session_id> --source telemetry   # only telemetry_peak marks
+# → warns if multiple sources present and no --source given (would produce duplicates)
+# → marks ordered by (clip.clip_order, mark.in_s) for correct chronological sequence
+# → FFmpeg concat + grade filter + audio mix + overlays
 # → opens preview with system video player on completion
-# → prints: axedup refine <session_id> --remove <mark_id> / --swap-music / etc.
 
 # Refine (re-runs assembly with changes)
 axedup refine <session_id> --remove <mark_id>
 axedup refine <session_id> --swap-music
 axedup refine <session_id> --grade cinematic
 axedup refine <session_id> --no-overlay
+axedup refine <session_id> --source jpg
 
 # Export
 axedup export <session_id> --aspect 16:9 9:16
@@ -358,9 +372,14 @@ Per clip, in order (resumable — skips already-completed steps based on DB stat
    Falls back to ContentDetector(threshold=27, min_scene_len=15) if no profile.
    → list of (start_s, end_s) scene tuples → stored in clips.scene_count
 
-5. Motion intensity (OpenCV)
-   Farneback dense optical flow on proxy frames (sampled every 0.5s)
-   → per-second mean magnitude → stored in telemetry.motion_intensity
+5. Motion intensity (OpenCV) — two methods, selectable via --proxy / --jpg:
+   Proxy method (default): Farneback dense optical flow on proxy frames (sampled every 0.5s)
+     → stored in telemetry.motion_intensity
+   JPEG method (--jpg, ~15× faster): ffmpeg extracts one frame per 0.5s interval as JPEG,
+     Farneback runs on consecutive JPEG pairs; temp frames deleted after
+     → stored in telemetry.motion_intensity_quick
+   Both methods can be run on the same session. Results are independent — review shows
+   whichever source(s) have candidates; assembly --source selects which to use.
 
 update clips record (peak_speed, peak_altitude, peak_motion, scene_count)
 ```
@@ -486,7 +505,7 @@ Defined in `axedup/presets/sports.py` as Python dataclasses.
 | trail | natural | medium | 10 km/h | 0.40 | 3 min |
 | cycling | natural | medium | 20 km/h | 0.45 | 5 min |
 
-LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punchy, warm, cool, vibrant, cinematic, natural). Music: MP3, 3–5 tracks per sport, Creative Commons licensed from Free Music Archive or ccMixter.
+LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punchy, warm, cool, vibrant, cinematic, natural). Music: user-provided via `--music /path/to/track.mp3`. No bundled tracks — see `/brainstorm/audio-music.md` for licensing rationale and future browser feature plan.
 
 ---
 
@@ -526,5 +545,5 @@ LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punc
 2. **GoPro chapter joining:** Virtual join (treat as one logical clip, stitch only at assembly) or physical join at ingest time (ffmpeg concat demuxer, takes time upfront)?
 3. **Music licensing:** Confirm Free Music Archive and ccMixter have appropriate CC0 / CC-BY tracks for the sports needed.
 4. **LUT sources:** Commission, adapt open-source packs, or generate via FFmpeg eq/curves parameters? Open-source LUT packs (e.g. from Lutify.me free tier) may be usable with attribution.
-5. **Scene detection threshold:** Default 27 is tuned for general content. Action footage with motion blur and fast panning may need a higher threshold. Expose as a per-sport config option.
+5. ~~**Scene detection threshold:** Default 27 is tuned for general content. Action footage with motion blur and fast panning may need a higher threshold.~~ Resolved: `scene_detector`, `scene_threshold`, and `scene_min_scene_len` are now per-sport profile fields, configurable per sport in `presets/sports.py`.
 6. **Review HTML polling:** Polling a temp file works but is crude. Alternative: NiceGUI Phase 2 replaces the HTML approach entirely, making this a short-lived workaround.

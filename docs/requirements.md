@@ -76,7 +76,7 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 ### FR-7: Video Assembly
 - Assembles accepted clips in chronological order
 - Applies sport profile color grade (bundled .cube LUT files via FFmpeg)
-- Adds background music from sport-specific bundled track library with auto-ducking
+- Optionally adds background music with auto-ducking; user provides their own track via `--music /path/to/track.mp3`
 - Renders telemetry overlays (speed, altitude) if data present and enabled
 - Produces 1080p H.264 preview
 
@@ -146,7 +146,8 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 | Mobile builds | Desktop first; Flutter is the likely path when this becomes real |
 | Cloud / hosted backend | Not a goal |
 | Multi-day trip sessions | Session grouping complexity — v2 |
-| Custom music import | Rights management — v2 |
+| Bundled music library | Licensing/redistribution complexity; user provides their own track instead |
+| In-app CC0 music browser | Phase 2 UI feature — browse and select tracks from online CC0 sources |
 | Preset marketplace | Needs user base first |
 | Windows / Mac builds | Cross-platform by design; add after Linux is solid |
 | Frame-precise timeline editing | Contradicts the "not a video editor" principle |

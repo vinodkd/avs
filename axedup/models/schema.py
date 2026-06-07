@@ -74,7 +74,8 @@ class TelemetryPoint(Base):
     lat: Mapped[float | None]            = mapped_column(Float, nullable=True)
     lon: Mapped[float | None]            = mapped_column(Float, nullable=True)
     accel_magnitude: Mapped[float | None]    = mapped_column(Float, nullable=True)
-    motion_intensity: Mapped[float | None]   = mapped_column(Float, nullable=True)
+    motion_intensity: Mapped[float | None]       = mapped_column(Float, nullable=True)
+    motion_intensity_quick: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     clip: Mapped["Clip"] = relationship(back_populates="telemetry")
 

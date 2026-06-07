@@ -30,6 +30,13 @@ GRADE_FILTERS: dict[str, str | None] = {
 }
 
 
+_SOURCE_MAP = {
+    "proxy":     "motion_peak",
+    "jpg":       "motion_peak_jpg",
+    "telemetry": "telemetry_peak",
+}
+
+
 def assemble_session(
     session_id: str,
     console: Console | None = None,
@@ -37,6 +44,7 @@ def assemble_session(
     swap_music: bool = False,
     grade_override: str | None = None,
     disable_overlay: bool = False,
+    source_filter: str | None = None,
 ) -> Path:
     """
     Assemble accepted marks into a preview video.
@@ -52,13 +60,16 @@ def assemble_session(
 
         clips = {c.id: c for c in db.query(Clip).filter(Clip.session_id == session_id).all()}
 
-        marks = (
+        q = (
             db.query(Mark)
+            .join(Clip, Mark.clip_id == Clip.id)
             .filter(Mark.clip_id.in_(clips.keys()))
             .filter(Mark.status == "accepted")
-            .order_by(Mark.in_s)
-            .all()
         )
+        if source_filter:
+            db_source = _SOURCE_MAP.get(source_filter, source_filter)
+            q = q.filter(Mark.source == db_source)
+        marks = q.order_by(Clip.clip_order, Mark.in_s).all()
 
         profile = db.query(Profile).filter(Profile.sport == session.sport).first()
 
@@ -66,8 +77,18 @@ def assemble_session(
     if not marks:
         raise ValueError("No accepted marks found. Run 'review' first and accept some clips.")
 
+    if not source_filter:
+        sources_present = {m.source for m in marks}
+        if len(sources_present) > 1:
+            _log(
+                f"[yellow]Warning: accepted marks from {len(sources_present)} sources "
+                f"({', '.join(sorted(sources_present))}). "
+                f"Use --source proxy|jpg|telemetry to pick one and avoid duplicates.[/yellow]"
+            )
+
     grade = grade_override or (profile.color_grade if profile else None) or "natural"
-    _log(f"Assembling {len(marks)} clip(s) · grade: {grade}")
+    source_label = f" · source: {source_filter}" if source_filter else ""
+    _log(f"Assembling {len(marks)} clip(s) · grade: {grade}{source_label}")
 
     # --- Stage 1: Cut each segment ---
     segment_paths: list[Path] = []
@@ -150,6 +171,8 @@ def _cut_segment(source: Path, in_s: float, out_s: float, dest: Path) -> None:
 def _encode_segment(seg: Path, dest: Path, grade: str, disable_overlay: bool = False) -> None:
     """Encode one segment with color grade applied."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    duration = _get_segment_duration(seg) or 0
+    timeout = max(600, int(duration * 60))  # 4K medium preset can be very slow on CPU
     grade_filter = GRADE_FILTERS.get(grade)
     vf = grade_filter if grade_filter and not disable_overlay else None
     cmd = [config.FFMPEG_BIN, "-y", "-i", str(seg)]
@@ -160,7 +183,7 @@ def _encode_segment(seg: Path, dest: Path, grade: str, disable_overlay: bool = F
         "-c:a", "aac", "-b:a", "192k",
         str(dest),
     ]
-    _run(cmd, f"encoding {seg.name}", timeout=300)
+    _run(cmd, f"encoding {seg.name}", timeout=timeout)
 
 
 def _concat_copy(encoded: list[Path], dest: Path) -> None:
@@ -197,6 +220,22 @@ def _is_valid_video(path: Path) -> bool:
         return r.returncode == 0 and float(r.stdout.strip() or 0) > 0
     except Exception:
         return False
+
+
+def _get_segment_duration(path: Path) -> float | None:
+    """Return duration in seconds for *path* via ffprobe, or None on failure."""
+    try:
+        r = subprocess.run(
+            [config.FFPROBE_BIN, "-v", "error", "-show_entries",
+             "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            val = float(r.stdout.strip() or 0)
+            return val if val > 0 else None
+    except Exception:
+        pass
+    return None
 
 
 def _run(cmd: list[str], description: str, timeout: int = 600) -> None:

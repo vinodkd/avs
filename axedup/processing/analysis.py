@@ -5,8 +5,8 @@ All heavy work runs on 480p proxy files — originals on the SD card are only re
 (during proxy generation). After that the SD card can be removed.
 """
 
+import shutil
 import subprocess
-import threading
 import time
 from pathlib import Path
 
@@ -26,8 +26,12 @@ from axedup.models.schema import Clip, Profile, Session, TelemetryPoint
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def analyze_session(session_id: str, console: Console | None = None) -> None:
-    """Run the full analysis pipeline for every clip in *session_id*."""
+def analyze_session(session_id: str, console: Console | None = None, motion_method: str = "proxy") -> None:
+    """Run the full analysis pipeline for every clip in *session_id*.
+
+    motion_method: 'proxy' (default) — dense optical flow on proxy video;
+                   'jpg'             — faster JPEG frame extraction path.
+    """
     _log = _logger(console)
 
     with get_session() as db:
@@ -58,13 +62,13 @@ def analyze_session(session_id: str, console: Console | None = None) -> None:
 
         for clip in clips:
             progress.update(overall, description=f"{clip.filename}")
-            _analyze_clip(clip, progress, console, profile)
+            _analyze_clip(clip, progress, console, profile, motion_method)
             progress.advance(overall)
 
     # Peak detection runs after all clips are analysed
     from axedup.processing.peaks import detect_peaks
     _log("Detecting candidate marks …")
-    total_candidates = detect_peaks(session_id, console=console)
+    total_candidates = detect_peaks(session_id, console=console, motion_method=motion_method)
     _log(f"[green]{total_candidates} candidate mark(s) generated.[/green]")
 
     with get_session() as db:
@@ -78,10 +82,16 @@ def analyze_session(session_id: str, console: Console | None = None) -> None:
 # Per-clip pipeline
 # ---------------------------------------------------------------------------
 
-def _analyze_clip(clip: Clip, progress: Progress, console: Console | None, profile: Profile | None = None) -> None:
+def _analyze_clip(
+    clip: Clip,
+    progress: Progress,
+    console: Console | None,
+    profile: Profile | None = None,
+    motion_method: str = "proxy",
+) -> None:
     _log = _logger(console)
 
-    # --- Stage 1: Proxy ---
+    # --- Stage 1: Proxy (always needed for thumbnails/scenes/proxy motion) ---
     proxy_path = config.PROXY_DIR / f"{clip.id}.mp4"
     if proxy_path.exists() and _is_valid_video(proxy_path):
         _log(f"  [dim]proxy exists, skipping generation[/dim]")
@@ -101,7 +111,7 @@ def _analyze_clip(clip: Clip, progress: Progress, console: Console | None, profi
         _log(f"  [dim]{len(existing_thumbs)} thumbnails exist, skipping[/dim]")
     else:
         _log(f"  extracting thumbnails …")
-        count = _extract_thumbnails(proxy_path, thumb_dir)
+        count = _extract_thumbnails(proxy_path, thumb_dir, duration_s=clip.duration_s)
         _log(f"  {count} thumbnails saved")
 
     # --- Stage 3: Scene detection (always re-runs; fast, threshold may change) ---
@@ -109,40 +119,62 @@ def _analyze_clip(clip: Clip, progress: Progress, console: Console | None, profi
     scenes = _detect_scenes(proxy_path, profile)
     _log(f"  {len(scenes)} scene(s) detected")
 
-    # --- Stage 4: Motion intensity (optical flow) — skip if already computed ---
-    with get_session() as db:
-        existing = db.query(TelemetryPoint).filter(TelemetryPoint.clip_id == clip.id).count()
-    if existing:
-        _log(f"  [dim]{existing} motion samples exist, skipping[/dim]")
+    # --- Stage 4: Motion intensity ---
+    if motion_method == "jpg":
+        _log(f"  computing motion intensity (jpg) …")
+        motion_points = _compute_motion_jpeg(proxy_path, progress=progress, duration_s=clip.duration_s)
+        _log(f"  {len(motion_points)} motion samples (jpg)")
+
         with get_session() as db:
-            motion_points = [
-                (t.timestamp_s, t.motion_intensity)
-                for t in db.query(TelemetryPoint).filter(TelemetryPoint.clip_id == clip.id).all()
-                if t.motion_intensity is not None
-            ]
-    else:
-        _log(f"  computing motion intensity …")
-        motion_points = _compute_motion(proxy_path, progress=progress)
-        _log(f"  {len(motion_points)} motion samples computed")
-
-    # --- Write results to DB ---
-    peak_motion = max((m for _, m in motion_points), default=None)
-
-    with get_session() as db:
-        c = db.query(Clip).filter(Clip.id == clip.id).first()
-        c.proxy_path = str(proxy_path)
-        c.scene_count = len(scenes)
-        c.peak_motion = peak_motion
-
-        if not existing:
+            # Remove any prior quick rows for this clip, then insert fresh ones
+            db.query(TelemetryPoint).filter(
+                TelemetryPoint.clip_id == clip.id,
+                TelemetryPoint.motion_intensity.is_(None),
+            ).delete()
             db.add_all([
-                TelemetryPoint(
-                    clip_id=clip.id,
-                    timestamp_s=ts,
-                    motion_intensity=intensity,
-                )
+                TelemetryPoint(clip_id=clip.id, timestamp_s=ts, motion_intensity_quick=intensity)
                 for ts, intensity in motion_points
             ])
+
+        with get_session() as db:
+            c = db.query(Clip).filter(Clip.id == clip.id).first()
+            c.proxy_path = str(proxy_path)
+            c.scene_count = len(scenes)
+
+    else:
+        # proxy method — skip if already computed
+        with get_session() as db:
+            existing = db.query(TelemetryPoint).filter(
+                TelemetryPoint.clip_id == clip.id,
+                TelemetryPoint.motion_intensity.isnot(None),
+            ).count()
+
+        if existing:
+            _log(f"  [dim]{existing} proxy motion samples exist, skipping[/dim]")
+            with get_session() as db:
+                motion_points = [
+                    (t.timestamp_s, t.motion_intensity)
+                    for t in db.query(TelemetryPoint).filter(TelemetryPoint.clip_id == clip.id).all()
+                    if t.motion_intensity is not None
+                ]
+        else:
+            _log(f"  computing motion intensity …")
+            motion_points = _compute_motion(proxy_path, progress=progress)
+            _log(f"  {len(motion_points)} motion samples computed")
+
+        peak_motion = max((m for _, m in motion_points), default=None)
+
+        with get_session() as db:
+            c = db.query(Clip).filter(Clip.id == clip.id).first()
+            c.proxy_path = str(proxy_path)
+            c.scene_count = len(scenes)
+            c.peak_motion = peak_motion
+
+            if not existing:
+                db.add_all([
+                    TelemetryPoint(clip_id=clip.id, timestamp_s=ts, motion_intensity=intensity)
+                    for ts, intensity in motion_points
+                ])
 
 
 # ---------------------------------------------------------------------------
@@ -218,17 +250,18 @@ def _generate_proxy(source: Path, dest: Path, duration_s: float = 0, progress: P
         raise RuntimeError(f"Proxy generation failed for {source.name} (exit {process.returncode})")
 
 
-def _extract_thumbnails(proxy_path: Path, thumb_dir: Path) -> int:
+def _extract_thumbnails(proxy_path: Path, thumb_dir: Path, duration_s: float = 0) -> int:
     """Extract one JPEG every THUMB_INTERVAL seconds from *proxy_path*."""
+    timeout = max(300, int(duration_s * 2))
     cmd = [
         config.FFMPEG_BIN,
         "-y",
         "-i", str(proxy_path),
         "-vf", f"fps=1/{config.THUMB_INTERVAL}",
-        "-q:v", "3",                   # JPEG quality (2=best, 31=worst)
+        "-q:v", "3",
         str(thumb_dir / "%04d.jpg"),
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(
             f"Thumbnail extraction failed:\n"
@@ -332,6 +365,74 @@ def _compute_motion(proxy_path: Path, progress: Progress | None = None) -> list[
             progress.remove_task(task_id)
 
     return results
+
+
+def _compute_motion_jpeg(
+    proxy_path: Path,
+    progress: Progress | None = None,
+    duration_s: float = 0,
+) -> list[tuple[float, float]]:
+    """
+    Faster motion intensity via ffmpeg JPEG extraction.
+
+    Extracts one frame per OPTICAL_FLOW_SAMPLE_INTERVAL seconds, runs Farneback
+    on consecutive pairs. Only decodes the frames we actually need (~15× faster
+    than the proxy method for sparse sampling rates).
+    """
+    sample_fps = 1.0 / config.OPTICAL_FLOW_SAMPLE_INTERVAL
+    frame_dir = config.JPEG_FRAMES_DIR / proxy_path.stem
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    extraction_timeout = max(300, int(duration_s * 2))
+
+    try:
+        cmd = [
+            config.FFMPEG_BIN, "-y",
+            "-i", str(proxy_path),
+            "-vf", f"fps={sample_fps}",
+            "-q:v", "5",
+            str(frame_dir / "%06d.jpg"),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=extraction_timeout)
+        if result.returncode != 0:
+            raise RuntimeError("JPEG frame extraction failed:\n" + result.stderr.decode(errors="replace")[-1000:])
+
+        frames = sorted(frame_dir.glob("*.jpg"))
+        total = len(frames)
+
+        task_id = None
+        if progress and total:
+            task_id = progress.add_task("  motion (jpg)", total=total)
+
+        results: list[tuple[float, float]] = []
+        prev_gray: np.ndarray | None = None
+
+        for i, frame_path in enumerate(frames):
+            gray = cv2.imread(str(frame_path), cv2.IMREAD_GRAYSCALE)
+            if gray is None:
+                continue
+
+            if prev_gray is not None:
+                flow = cv2.calcOpticalFlowFarneback(
+                    prev_gray, gray, None,
+                    pyr_scale=0.5, levels=3, winsize=15,
+                    iterations=3, poly_n=5, poly_sigma=1.2, flags=0,
+                )
+                magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+                intensity = min(float(np.mean(magnitude)) / 20.0, 1.0)
+                timestamp_s = (i + 1) * config.OPTICAL_FLOW_SAMPLE_INTERVAL
+                results.append((round(timestamp_s, 3), round(intensity, 4)))
+
+            prev_gray = gray
+            if task_id is not None:
+                progress.update(task_id, completed=i + 1)
+
+        if task_id is not None:
+            progress.remove_task(task_id)
+
+        return results
+
+    finally:
+        shutil.rmtree(frame_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

@@ -15,9 +15,17 @@ Struck-through items are committed.
   - [ ] Run WebRTC VAD on proxy audio to detect speech segments
   - [ ] Boost peak score for segments containing speech
   - [ ] Optional: `faster-whisper` transcription for keyword search
-- [ ] Optical flow optimisation
+- [ ] Optical flow optimisation (`--jpg` / `--proxy` flag on `analyze`)
   - [ ] Extract sample frames as JPEGs via ffmpeg (`fps=2`) instead of decoding every frame
   - [ ] Run Farneback on JPEG pairs — ~15× faster for sparse sampling
+  - [ ] Store results in `motion_intensity_quick` (separate from proxy `motion_intensity`)
+  - [ ] Peak detection runs per-method, marks tagged `motion_peak_proxy` vs `motion_peak_jpg`
+  - [ ] Review shows two sections when both sets of marks exist
+
+- [ ] Pipeline timing
+  - [ ] Add `analyzed_at`, `assembled_at`, `exported_at` timestamps to `Session`
+  - [ ] Add `analysis_duration_s`, `assembly_duration_s`, `export_duration_s` to `Session`
+  - [ ] Show timings in `axedup sessions` output
 
 ---
 
@@ -56,7 +64,8 @@ Struck-through items are committed.
 ## Pending decisions
 
 - [ ] GoPro chapter joining — virtual join at assembly vs physical join at ingest
-- [ ] Music assets — confirm CC0/CC-BY tracks for each sport from FMA or ccMixter
+- [ ] Music — `--music /path/to/track.mp3` flag on `assemble` for user-provided tracks
+- [ ] Music browser (Phase 2 UI) — browse/search CC0 sources online, point to track URL
 - [ ] LUT assets — commission, adapt open-source pack, or generate via ffmpeg eq/curves
 
 ---
