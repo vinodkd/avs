@@ -58,6 +58,12 @@ def analyze_session(session_id: str, console: Console | None = None) -> None:
             _analyze_clip(clip, progress, console)
             progress.advance(overall)
 
+    # Peak detection runs after all clips are analysed
+    from axedup.processing.peaks import detect_peaks
+    _log("Detecting candidate marks …")
+    total_candidates = detect_peaks(session_id, console=console)
+    _log(f"[green]{total_candidates} candidate mark(s) generated.[/green]")
+
     with get_session() as db:
         session = db.query(Session).filter(Session.id == session_id).first()
         session.status = "ready"
