@@ -37,7 +37,7 @@ FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
 
 PROXY_HEIGHT    = 480           # px; all CV work runs on this resolution
 THUMB_INTERVAL  = 5             # seconds between thumbnails
-SCENE_THRESHOLD = 27            # PySceneDetect ContentDetector threshold
+SCENE_THRESHOLD = 20            # PySceneDetect ContentDetector threshold (10=sensitive, 27=coarse)
 OPTICAL_FLOW_SAMPLE_INTERVAL = 0.5  # seconds between flow samples
 
 # --- Ollama ---
