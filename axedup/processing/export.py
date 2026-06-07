@@ -1,0 +1,131 @@
+"""
+Export pipeline: re-encode the approved preview into final output files.
+Supports 16:9 (YouTube) and 9:16 (Reels / Shorts / TikTok) aspect ratios.
+"""
+
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+from rich.console import Console
+
+from axedup import config
+from axedup.models.db import get_session
+from axedup.models.schema import Export, Session
+
+# Target encode settings per aspect ratio
+_ENCODE_SETTINGS = {
+    "16:9": {
+        "vf":      "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                   "pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+        "crf":     "20",
+        "preset":  "slow",
+        "suffix":  "youtube",
+    },
+    "9:16": {
+        # Centre-crop to 9:16 then scale to 1080×1920
+        "vf":      "crop=ih*9/16:ih,scale=1080:1920",
+        "crf":     "22",
+        "preset":  "medium",
+        "suffix":  "reel",
+    },
+}
+
+
+def export_session(
+    session_id: str,
+    aspects: list[str] | None = None,
+    console: Console | None = None,
+) -> list[Path]:
+    """
+    Export the assembled preview for *session_id* in each requested aspect ratio.
+    Returns a list of output file paths.
+    """
+    _log = _logger(console)
+    aspects = aspects or ["16:9"]
+
+    with get_session() as db:
+        session = db.query(Session).filter(Session.id == session_id).first()
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        if session.status not in ("assembled", "exported"):
+            raise ValueError(
+                f"Session is not assembled yet (status: {session.status}). "
+                "Run 'assemble' first."
+            )
+
+    preview_path = config.PREVIEW_DIR / f"{session_id}_preview.mp4"
+    if not preview_path.exists():
+        raise ValueError(f"Preview not found at {preview_path}. Run 'assemble' first.")
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    sport = session.sport or "video"
+
+    output_paths: list[Path] = []
+
+    for aspect in aspects:
+        if aspect not in _ENCODE_SETTINGS:
+            _log(f"[yellow]Unknown aspect ratio '{aspect}', skipping.[/yellow]")
+            continue
+
+        settings = _ENCODE_SETTINGS[aspect]
+        filename = f"{date_str}_{sport}_{settings['suffix']}.mp4"
+        dest = config.OUTPUT_DIR / filename
+
+        _log(f"Exporting {aspect} → {dest.name} …")
+        _encode(preview_path, dest, settings)
+
+        duration = _get_duration(dest)
+
+        with get_session() as db:
+            db.add(Export(
+                session_id=session_id,
+                filepath=str(dest),
+                aspect=aspect,
+                duration_s=duration,
+            ))
+            s = db.query(Session).filter(Session.id == session_id).first()
+            s.status = "exported"
+
+        output_paths.append(dest)
+        _log(f"  [green]✓[/green] {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
+
+    return output_paths
+
+
+def _encode(source: Path, dest: Path, settings: dict) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        config.FFMPEG_BIN, "-y",
+        "-i", str(source),
+        "-vf", settings["vf"],
+        "-c:v", "libx264",
+        "-preset", settings["preset"],
+        "-crf", settings["crf"],
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "+faststart",
+        str(dest),
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Export failed ({dest.name}):\n"
+            + result.stderr.decode(errors="replace")[-2000:]
+        )
+
+
+def _get_duration(path: Path) -> float | None:
+    import json
+    cmd = [
+        config.FFPROBE_BIN, "-v", "quiet",
+        "-print_format", "json", "-show_format", str(path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if result.returncode == 0:
+        return float(json.loads(result.stdout).get("format", {}).get("duration", 0))
+    return None
+
+
+def _logger(console: Console | None):
+    return console.log if console else print
