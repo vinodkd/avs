@@ -37,7 +37,7 @@ def open_review(session_id: str, console: Console | None = None) -> None:
             db.query(Mark)
             .filter(Mark.clip_id.in_(clips.keys()))
             .filter(Mark.status == "candidate")
-            .order_by(Mark.score.desc())
+            .order_by(Mark.in_s)
             .all()
         )
 
@@ -244,7 +244,7 @@ def _build_html(marks: list[Mark], clips: dict[str, Clip]) -> str:
 </head>
 <body>
 <h1>AxEdUp — Clip Review</h1>
-<p class="subtitle">{len(marks)} candidate(s) · sorted by motion score · all accepted by default</p>
+<p class="subtitle">{len(marks)} candidate(s) · chronological order · all accepted by default</p>
 <div class="grid">{cards_html}</div>
 <div class="footer">
   <div class="summary">
