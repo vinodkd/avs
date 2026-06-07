@@ -351,7 +351,11 @@ Per clip, in order (resumable — skips already-completed steps based on DB stat
    Other: skip; motion_intensity only
 
 4. Scene detection
-   PySceneDetect ContentDetector(threshold=27) on proxy
+   PySceneDetect on proxy — detector type and params from sport profile:
+     content (default): ContentDetector(threshold, min_scene_len)
+     adaptive:          AdaptiveDetector(adaptive_threshold, min_scene_len)
+     threshold:         ThresholdDetector(threshold)
+   Falls back to ContentDetector(threshold=27, min_scene_len=15) if no profile.
    → list of (start_s, end_s) scene tuples → stored in clips.scene_count
 
 5. Motion intensity (OpenCV)
@@ -402,26 +406,19 @@ on receipt: update marks table (accepted/rejected), delete temp files
 ```
 collect accepted marks sorted by (clip.clip_order, mark.in_s)
 
-cut segments:
+cut segments (stream copy, fast):
   for each mark:
-    ffmpeg -ss {in_s} -to {out_s} -i {source} -c copy {tmp/mark_id.mp4}
+    ffmpeg -ss {in_s} -to {out_s} -i {source} -c copy {segments/mark_id.mp4}
+  cached — skipped if segment file already exists
 
-select music:
-  sport profile → presets/music/{sport}/ → random track
+encode segments in parallel (4 workers):
+  for each segment:
+    ffmpeg -i {segment} -vf {grade_filter} -c:v libx264 -preset medium -crf 22
+           {segments/encoded/mark_id.mp4}
+  cached — validated with ffprobe before trusting; corrupt files deleted and re-encoded
 
-build FFmpeg filter graph:
-  concat all segments
-  lut3d filter ← presets/luts/{grade}.cube
-  eq filter (saturation, contrast from sport profile)
-  loudnorm on original audio track
-  amix (original + music)
-  sidechaincompress (duck music under loud original audio)
-  if overlays enabled and telemetry present:
-    generate overlay video (drawtext filter: speed/altitude at timestamps)
-    overlay composite
-
-encode → cache/previews/{session_id}_preview.mp4
-  -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 192k
+concat encoded segments (lossless copy):
+  ffmpeg -f concat -i {list} -c copy {cache/previews/{session_id}_preview.mp4}
 ```
 
 ### Stage 6 — Export (`processing/export.py`)

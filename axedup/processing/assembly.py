@@ -8,10 +8,11 @@ Music and telemetry overlays are skipped until those assets exist.
 
 import subprocess
 import tempfile
-import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from axedup import config
 from axedup.models.db import get_session
@@ -82,10 +83,38 @@ def assemble_session(
 
         segment_paths.append(seg_path)
 
-    # --- Stage 2: Concat + grade + encode ---
+    # --- Stage 2: Encode each segment in parallel with grade ---
+    encoded_dir = config.SEGMENT_DIR / "encoded"
+    encoded_dir.mkdir(parents=True, exist_ok=True)
+    encoded_paths = [encoded_dir / f"{mark.id}.mp4" for mark in marks]
+
+    _log(f"Encoding {len(marks)} segment(s) …")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("segments", total=len(marks))
+        futures = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for seg, enc in zip(segment_paths, encoded_paths):
+                if enc.exists() and _is_valid_video(enc):
+                    progress.advance(task)
+                else:
+                    enc.unlink(missing_ok=True)
+                    futures[executor.submit(_encode_segment, seg, enc, grade, disable_overlay)] = enc
+            for future in as_completed(futures):
+                future.result()
+                progress.advance(task)
+
+    # --- Stage 3: Fast concat of encoded segments ---
     preview_path = config.PREVIEW_DIR / f"{session_id}_preview.mp4"
-    _log(f"Encoding preview …")
-    _concat_and_encode(segment_paths, preview_path, grade, disable_overlay)
+    _log("Concatenating segments …")
+    _concat_copy(encoded_paths, preview_path)
 
     # --- Update session status ---
     with get_session() as db:
@@ -118,65 +147,60 @@ def _cut_segment(source: Path, in_s: float, out_s: float, dest: Path) -> None:
     _run(cmd, f"cutting segment from {source.name}")
 
 
-def _concat_and_encode(
-    segments: list[Path],
-    dest: Path,
-    grade: str,
-    disable_overlay: bool,
-) -> None:
-    """
-    Concatenate *segments*, apply color grade, encode to 1080p H.264.
-
-    Uses a temporary concat list file and the ffmpeg concat demuxer.
-    The grade filter is applied during the single encode pass.
-    """
+def _encode_segment(seg: Path, dest: Path, grade: str, disable_overlay: bool = False) -> None:
+    """Encode one segment with color grade applied."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    grade_filter = GRADE_FILTERS.get(grade)
+    vf = grade_filter if grade_filter and not disable_overlay else None
+    cmd = [config.FFMPEG_BIN, "-y", "-i", str(seg)]
+    if vf:
+        cmd += ["-vf", vf]
+    cmd += [
+        "-c:v", "libx264", "-preset", "medium", "-crf", "22",
+        "-c:a", "aac", "-b:a", "192k",
+        str(dest),
+    ]
+    _run(cmd, f"encoding {seg.name}", timeout=300)
 
-    # Write concat list to a temp file
+
+def _concat_copy(encoded: list[Path], dest: Path) -> None:
+    """Lossless concat of already-encoded segments."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".txt", delete=False, dir=config.SEGMENT_DIR
     ) as f:
         concat_file = Path(f.name)
-        for seg in segments:
-            # ffmpeg concat demuxer requires escaped paths
-            escaped = str(seg).replace("'", "'\\''")
+        for p in encoded:
+            escaped = str(p).replace("'", "'\\''")
             f.write(f"file '{escaped}'\n")
-
-    grade_filter = GRADE_FILTERS.get(grade)
-    vf = grade_filter if grade_filter and not disable_overlay else None
-
     cmd = [
         config.FFMPEG_BIN, "-y",
-        "-f", "concat",
-        "-safe", "0",
+        "-f", "concat", "-safe", "0",
         "-i", str(concat_file),
-    ]
-
-    if vf:
-        cmd += ["-vf", vf]
-
-    # Always re-encode to H.264 for a consistent, reasonably-sized preview
-    cmd += [
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "22",
-    ]
-
-    cmd += [
-        "-c:a", "aac",
-        "-b:a", "192k",
+        "-c", "copy",
         "-movflags", "+faststart",
         str(dest),
     ]
-
     try:
-        _run(cmd, "encoding preview")
+        _run(cmd, "concat", timeout=120)
     finally:
         concat_file.unlink(missing_ok=True)
 
 
-def _run(cmd: list[str], description: str) -> None:
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
+def _is_valid_video(path: Path) -> bool:
+    try:
+        r = subprocess.run(
+            [config.FFPROBE_BIN, "-v", "error", "-show_entries",
+             "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.returncode == 0 and float(r.stdout.strip() or 0) > 0
+    except Exception:
+        return False
+
+
+def _run(cmd: list[str], description: str, timeout: int = 600) -> None:
+    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(
             f"FFmpeg failed ({description}):\n"

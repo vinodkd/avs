@@ -117,6 +117,10 @@ class Profile(Base):
     overlay_gps_map: Mapped[bool]  = mapped_column(Boolean, default=False)
     speed_threshold_kmh: Mapped[float | None] = mapped_column(Float, nullable=True)
     motion_threshold: Mapped[float | None]    = mapped_column(Float, nullable=True)
+    # scene detection — content | adaptive | threshold
+    scene_detector: Mapped[str] = mapped_column(String, nullable=False, default="content")
+    scene_threshold: Mapped[float | None]       = mapped_column(Float, nullable=True)
+    scene_min_scene_len: Mapped[int | None]     = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     def __repr__(self) -> str:

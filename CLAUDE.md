@@ -7,6 +7,12 @@ AxEdUp is a desktop tool for editing and uploading action camera footage. It rea
 See `/brainstorm/` for full design history and decision rationale.
 See `/docs/design.md` for current architecture and build plan.
 
+## Commit Policy
+
+**Never commit until tested.** Write the change, test it against real data, wait for confirmation it works, then commit. No speculative commits.
+
+For assembly changes: human approval of the preview is sufficient. Export does not need to be tested before committing — it is a separate step with no new pipeline logic.
+
 ## Keeping Docs in Sync
 
 **This is mandatory.** Whenever you add, change, or remove a feature, data model field, CLI command, processing step, or dependency, update the relevant doc in `/docs/` before considering the task done.

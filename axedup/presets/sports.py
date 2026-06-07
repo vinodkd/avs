@@ -16,6 +16,9 @@ class SportDefaults:
     overlay_gps_map: bool
     speed_threshold_kmh: float
     motion_threshold: float
+    scene_detector: str
+    scene_threshold: float
+    scene_min_scene_len: int
 
 
 DEFAULT_PROFILES: dict[str, dict] = {
@@ -31,6 +34,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=25.0,
         motion_threshold=0.60,
+        scene_detector="content",
+        scene_threshold=27.0,
+        scene_min_scene_len=15,
     ),
     "surf": dict(
         color_grade="warm",
@@ -44,6 +50,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=15.0,
         motion_threshold=0.50,
+        scene_detector="adaptive",
+        scene_threshold=3.0,
+        scene_min_scene_len=20,
     ),
     "ski": dict(
         color_grade="cool",
@@ -57,6 +66,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=40.0,
         motion_threshold=0.65,
+        scene_detector="content",
+        scene_threshold=30.0,
+        scene_min_scene_len=15,
     ),
     "skydive": dict(
         color_grade="vibrant",
@@ -70,6 +82,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=100.0,
         motion_threshold=0.70,
+        scene_detector="adaptive",
+        scene_threshold=3.0,
+        scene_min_scene_len=10,
     ),
     "moto": dict(
         color_grade="cinematic",
@@ -83,6 +98,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=60.0,
         motion_threshold=0.55,
+        scene_detector="content",
+        scene_threshold=35.0,
+        scene_min_scene_len=25,
     ),
     "trail": dict(
         color_grade="natural",
@@ -96,6 +114,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=10.0,
         motion_threshold=0.40,
+        scene_detector="content",
+        scene_threshold=25.0,
+        scene_min_scene_len=20,
     ),
     "cycling": dict(
         color_grade="natural",
@@ -109,6 +130,9 @@ DEFAULT_PROFILES: dict[str, dict] = {
         overlay_gps_map=False,
         speed_threshold_kmh=20.0,
         motion_threshold=0.45,
+        scene_detector="content",
+        scene_threshold=27.0,
+        scene_min_scene_len=15,
     ),
 }
 

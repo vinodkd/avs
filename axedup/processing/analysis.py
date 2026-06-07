@@ -6,6 +6,8 @@ All heavy work runs on 480p proxy files — originals on the SD card are only re
 """
 
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -17,7 +19,7 @@ from scenedetect.detectors import ContentDetector
 
 from axedup import config
 from axedup.models.db import get_session
-from axedup.models.schema import Clip, Session, TelemetryPoint
+from axedup.models.schema import Clip, Profile, Session, TelemetryPoint
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ def analyze_session(session_id: str, console: Console | None = None) -> None:
             .order_by(Clip.clip_order)
             .all()
         )
+        profile = db.query(Profile).filter(Profile.sport == session.sport).first()
         session.status = "analyzing"
 
     _log(f"Analyzing {len(clips)} clip(s) …")
@@ -55,7 +58,7 @@ def analyze_session(session_id: str, console: Console | None = None) -> None:
 
         for clip in clips:
             progress.update(overall, description=f"{clip.filename}")
-            _analyze_clip(clip, progress, console)
+            _analyze_clip(clip, progress, console, profile)
             progress.advance(overall)
 
     # Peak detection runs after all clips are analysed
@@ -75,16 +78,20 @@ def analyze_session(session_id: str, console: Console | None = None) -> None:
 # Per-clip pipeline
 # ---------------------------------------------------------------------------
 
-def _analyze_clip(clip: Clip, progress: Progress, console: Console | None) -> None:
+def _analyze_clip(clip: Clip, progress: Progress, console: Console | None, profile: Profile | None = None) -> None:
     _log = _logger(console)
 
     # --- Stage 1: Proxy ---
     proxy_path = config.PROXY_DIR / f"{clip.id}.mp4"
-    if proxy_path.exists():
+    if proxy_path.exists() and _is_valid_video(proxy_path):
         _log(f"  [dim]proxy exists, skipping generation[/dim]")
     else:
-        _log(f"  generating proxy …")
-        _generate_proxy(Path(clip.filepath), proxy_path)
+        if proxy_path.exists():
+            _log(f"  [yellow]corrupt proxy found, regenerating …[/yellow]")
+            proxy_path.unlink()
+        else:
+            _log(f"  generating proxy …")
+        _generate_proxy(Path(clip.filepath), proxy_path, duration_s=clip.duration_s, progress=progress)
 
     # --- Stage 2: Thumbnails ---
     thumb_dir = config.THUMB_DIR / clip.id
@@ -99,7 +106,7 @@ def _analyze_clip(clip: Clip, progress: Progress, console: Console | None) -> No
 
     # --- Stage 3: Scene detection (always re-runs; fast, threshold may change) ---
     _log(f"  detecting scenes …")
-    scenes = _detect_scenes(proxy_path)
+    scenes = _detect_scenes(proxy_path, profile)
     _log(f"  {len(scenes)} scene(s) detected")
 
     # --- Stage 4: Motion intensity (optical flow) — skip if already computed ---
@@ -115,7 +122,7 @@ def _analyze_clip(clip: Clip, progress: Progress, console: Console | None) -> No
             ]
     else:
         _log(f"  computing motion intensity …")
-        motion_points = _compute_motion(proxy_path)
+        motion_points = _compute_motion(proxy_path, progress=progress)
         _log(f"  {len(motion_points)} motion samples computed")
 
     # --- Write results to DB ---
@@ -142,28 +149,73 @@ def _analyze_clip(clip: Clip, progress: Progress, console: Console | None) -> No
 # Stage implementations
 # ---------------------------------------------------------------------------
 
-def _generate_proxy(source: Path, dest: Path) -> None:
+def _is_valid_video(path: Path) -> bool:
+    """Return True if ffprobe can read a valid duration from *path*."""
+    try:
+        result = subprocess.run(
+            [config.FFPROBE_BIN, "-v", "error", "-show_entries",
+             "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+             str(path)],
+            capture_output=True, text=True, timeout=15,
+        )
+        return result.returncode == 0 and float(result.stdout.strip() or 0) > 0
+    except Exception:
+        return False
+
+
+def _generate_proxy(source: Path, dest: Path, duration_s: float = 0, progress: Progress | None = None) -> None:
     """Transcode *source* to a 480p H.264 proxy at *dest*."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    timeout = max(600, int(duration_s * 4))
     cmd = [
         config.FFMPEG_BIN,
-        "-y",                          # overwrite if exists
+        "-y",
+        "-threads", "0",
         "-i", str(source),
-        "-vf", "scale=-2:480",         # maintain aspect ratio, height=480
+        "-vf", "scale=-2:480",
         "-c:v", "libx264",
-        "-preset", "ultrafast",        # fast encode — quality doesn't matter for analysis
+        "-preset", "ultrafast",
         "-crf", "28",
+        "-threads", "0",
         "-c:a", "aac",
         "-b:a", "64k",
         "-movflags", "+faststart",
+        "-progress", "pipe:1",
+        "-nostats",
         str(dest),
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Proxy generation failed for {source.name}:\n"
-            + result.stderr.decode(errors="replace")
-        )
+
+    task_id = None
+    if progress and duration_s:
+        task_id = progress.add_task("  proxy", total=100)
+
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    deadline = time.time() + timeout
+    timed_out = False
+    try:
+        for line in process.stdout:
+            if time.time() > deadline:
+                timed_out = True
+                process.kill()
+                break
+            if task_id is not None and line.startswith("out_time_ms="):
+                try:
+                    out_ms = int(line.split("=", 1)[1].strip())
+                    pct = min(100, int(out_ms / (duration_s * 1_000_000) * 100))
+                    progress.update(task_id, completed=pct)
+                except (ValueError, ZeroDivisionError):
+                    pass
+        process.wait()
+    finally:
+        if task_id is not None:
+            progress.remove_task(task_id)
+
+    if timed_out:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"Proxy generation timed out after {timeout}s for {source.name}")
+    if process.returncode != 0:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"Proxy generation failed for {source.name} (exit {process.returncode})")
 
 
 def _extract_thumbnails(proxy_path: Path, thumb_dir: Path) -> int:
@@ -185,26 +237,41 @@ def _extract_thumbnails(proxy_path: Path, thumb_dir: Path) -> int:
     return len(list(thumb_dir.glob("*.jpg")))
 
 
-def _detect_scenes(proxy_path: Path) -> list[tuple[float, float]]:
-    """
-    Return a list of (start_s, end_s) scene tuples using PySceneDetect.
-    Falls back to [(0, duration)] on error.
-    """
+def _detect_scenes(proxy_path: Path, profile: Profile | None = None) -> list[tuple[float, float]]:
+    """Return a list of (start_s, end_s) scene tuples using PySceneDetect."""
+    from scenedetect.detectors import AdaptiveDetector, ThresholdDetector
+
+    detector_name = profile.scene_detector if profile else "content"
+    threshold = (profile.scene_threshold if profile and profile.scene_threshold is not None
+                 else config.SCENE_THRESHOLD)
+    min_scene_len = (profile.scene_min_scene_len if profile and profile.scene_min_scene_len is not None
+                     else 15)
+
     try:
         video = open_video(str(proxy_path))
         scene_manager = SceneManager()
-        scene_manager.add_detector(ContentDetector(threshold=config.SCENE_THRESHOLD))
+
+        if detector_name == "adaptive":
+            scene_manager.add_detector(AdaptiveDetector(
+                adaptive_threshold=threshold,
+                min_scene_len=min_scene_len,
+            ))
+        elif detector_name == "threshold":
+            scene_manager.add_detector(ThresholdDetector(threshold=threshold))
+        else:
+            scene_manager.add_detector(ContentDetector(
+                threshold=threshold,
+                min_scene_len=min_scene_len,
+            ))
+
         scene_manager.detect_scenes(video, show_progress=False)
         scenes = scene_manager.get_scene_list()
-        return [
-            (s.get_seconds(), e.get_seconds())
-            for s, e in scenes
-        ]
-    except Exception as exc:
+        return [(s.get_seconds(), e.get_seconds()) for s, e in scenes]
+    except Exception:
         return []
 
 
-def _compute_motion(proxy_path: Path) -> list[tuple[float, float]]:
+def _compute_motion(proxy_path: Path, progress: Progress | None = None) -> list[tuple[float, float]]:
     """
     Compute per-sample motion intensity using dense optical flow (Farneback).
 
@@ -217,7 +284,12 @@ def _compute_motion(proxy_path: Path) -> list[tuple[float, float]]:
         raise RuntimeError(f"OpenCV could not open proxy: {proxy_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     sample_every = max(1, int(fps * config.OPTICAL_FLOW_SAMPLE_INTERVAL))
+
+    task_id = None
+    if progress and total_frames:
+        task_id = progress.add_task("  motion", total=total_frames)
 
     results: list[tuple[float, float]] = []
     prev_gray: np.ndarray | None = None
@@ -244,7 +316,6 @@ def _compute_motion(proxy_path: Path) -> list[tuple[float, float]]:
                         flags=0,
                     )
                     magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
-                    # Normalise: typical max magnitude on 480p is ~20–30px/frame
                     intensity = float(np.mean(magnitude)) / 20.0
                     intensity = min(intensity, 1.0)
                     timestamp_s = frame_idx / fps
@@ -252,9 +323,13 @@ def _compute_motion(proxy_path: Path) -> list[tuple[float, float]]:
 
                 prev_gray = gray
 
+            if task_id is not None:
+                progress.update(task_id, completed=frame_idx)
             frame_idx += 1
     finally:
         cap.release()
+        if task_id is not None:
+            progress.remove_task(task_id)
 
     return results
 
