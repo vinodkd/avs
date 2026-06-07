@@ -539,6 +539,61 @@ LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punc
 
 ---
 
+## Phase 2 UI Design (NiceGUI)
+
+The CLI remains the primary interface throughout. `axedup ui` (or `python run.py ui`) launches NiceGUI, which calls the same processing modules as the CLI — no separate backend, no duplication of pipeline logic.
+
+### Navigation
+
+Persistent left sidebar showing the six workflow steps in order. Each step shows its status (not started / in progress / done) for the active session. Clicking a completed step returns to it.
+
+| Sidebar label | Maps to |
+|---|---|
+| **Load** | Ingest — import footage from folder or SD card |
+| **Scan** | Analysis — proxy, thumbnails, scene detection, motion intensity |
+| **Pick** | Review — select clips to include |
+| **Cut** | Assembly — grade, order, preview |
+| **Save** | Export — final encode, aspect ratio selection |
+| **Share** | Upload — YouTube, Instagram (future; visible in sidebar but greyed out) |
+
+### Home / History screen
+
+Landing page before any session is selected. Lists past sessions from the DB: sport badge, date, clip count, total duration, status, and a "Continue →" button that resumes at the next pending step. New session button at top.
+
+### Load screen
+
+Folder picker (or SD card auto-detected via watchdog). Sport dropdown. Scan depth radio: **Quick scan** (JPEG motion method) or **Full scan** (proxy-based, more accurate). Start button. Once a folder is selected, shows detected filenames and durations for confirmation before committing.
+
+### Scan screen
+
+Live progress per clip — one row per clip, sub-rows for each stage (proxy / thumbnails / scenes / motion). A **Pause** button is shown between stages (not mid-stage); the pipeline checks a flag at step boundaries and halts until resumed.
+
+### Pick screen
+
+**Top zone — video player.** Plays the full proxy for the active clip. Segment start times serve as bookmarks: clicking a clip card below seeks the player to that `in_s`.
+
+**Bottom zone — clip strip.** Horizontally scrollable compact cards (one per accepted mark candidate). Each card shows a short looping video preview (2–3s extracted from proxy around the mark midpoint, `<video autoplay loop muted>`), time range, score bar, and Accept / Reject buttons. Clicking a card seeks the player; buttons toggle status in the DB on click.
+
+Source toggle (proxy vs JPEG candidates) is backlogged — in practice the user picks one source at assembly time via `--source`, and Pick shows all marks from the most recent analysis run.
+
+### Cut screen
+
+Grade picker, Assemble button, embedded preview player once built. Secondary panel for refine controls (remove a clip).
+
+### Save screen
+
+Aspect ratio checkboxes (16:9, 9:16), Export button, progress bar with ETA, output path on completion.
+
+### Share screen (future, Phase 3)
+
+Platform tiles (YouTube, Instagram), per-platform metadata, auth flow. Not implemented in Phase 1 or 2.
+
+### Settings screen (backlog)
+
+Sport profile editor: per-sport thresholds, grade defaults, scene detection params. Global: cache dir, custom FFmpeg path. Deferred until core workflow is solid.
+
+---
+
 ## Open Questions
 
 1. **Proxy storage strategy:** Generate proxies eagerly at ingest or lazily on first analysis run? Eager is better UX; lazy saves disk for abandoned sessions.
