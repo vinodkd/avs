@@ -4,10 +4,12 @@ Supports 16:9 (YouTube) and 9:16 (Reels / Shorts / TikTok) aspect ratios.
 """
 
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from axedup import config
 from axedup.models.db import get_session
@@ -73,7 +75,7 @@ def export_session(
         dest = config.OUTPUT_DIR / filename
 
         _log(f"Exporting {aspect} → {dest.name} …")
-        _encode(preview_path, dest, settings)
+        _encode(preview_path, dest, settings, console)
 
         duration = _get_duration(dest)
 
@@ -93,8 +95,10 @@ def export_session(
     return output_paths
 
 
-def _encode(source: Path, dest: Path, settings: dict) -> None:
+def _encode(source: Path, dest: Path, settings: dict, console: Console | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
+    duration = _get_duration(source) or 0
+    timeout = max(600, int(duration * 20))
     cmd = [
         config.FFMPEG_BIN, "-y",
         "-i", str(source),
@@ -105,13 +109,50 @@ def _encode(source: Path, dest: Path, settings: dict) -> None:
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",
+        "-progress", "pipe:1",
+        "-nostats",
         str(dest),
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        TextColumn("eta"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("encoding", total=100)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        deadline = time.time() + timeout
+        timed_out = False
+        try:
+            for line in process.stdout:
+                if time.time() > deadline:
+                    timed_out = True
+                    process.kill()
+                    break
+                if line.startswith("out_time_ms=") and duration:
+                    try:
+                        out_ms = int(line.split("=", 1)[1].strip())
+                        pct = min(100, int(out_ms / (duration * 1_000_000) * 100))
+                        progress.update(task, completed=pct)
+                    except (ValueError, ZeroDivisionError):
+                        pass
+            process.wait()
+        finally:
+            pass
+
+    if timed_out:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"Export timed out after {timeout}s for {dest.name}")
+    if process.returncode != 0:
+        dest.unlink(missing_ok=True)
         raise RuntimeError(
-            f"Export failed ({dest.name}):\n"
-            + result.stderr.decode(errors="replace")[-2000:]
+            f"Export failed ({dest.name}) — exit {process.returncode}"
         )
 
 

@@ -28,7 +28,7 @@ Struck-through items are committed.
   - [x] ~~Validate encoded segment cache before use (ffprobe check, delete corrupt files)~~
 - [ ] Progress and estimates
   - [ ] Progress bar for segment encoding (N of M segments)
-  - [ ] Progress bar and time estimate for export encode (ffmpeg pipe → `out_time_ms`)
+  - [x] ~~Progress bar and time estimate for export encode (ffmpeg pipe → `out_time_ms`)~~
 - [ ] Cleanup
   - [ ] Delete `segments/encoded/` after successful export (grade is baked in, stale on grade change)
   - [ ] `axedup clean <session_id>` command for manual cache cleanup
