@@ -32,6 +32,9 @@ env/
 *.swo
 .DS_Store
 
+# Logs
+*.log
+
 # Test output
 .coverage
 htmlcov/
