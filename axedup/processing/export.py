@@ -13,7 +13,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from axedup import config
 from axedup.models.db import get_session
-from axedup.models.schema import Export, Session
+from axedup.models.schema import Export, Session, SessionStatus
 
 # Target encode settings per aspect ratio
 _ENCODE_SETTINGS = {
@@ -38,6 +38,7 @@ def export_session(
     session_id: str,
     aspects: list[str] | None = None,
     console: Console | None = None,
+    output_dir: Path | None = None,
 ) -> list[Path]:
     """
     Export the assembled preview for *session_id* in each requested aspect ratio.
@@ -50,7 +51,7 @@ def export_session(
         session = db.query(Session).filter(Session.id == session_id).first()
         if not session:
             raise ValueError(f"Session {session_id} not found")
-        if session.status not in ("assembled", "exported"):
+        if session.status not in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED):
             raise ValueError(
                 f"Session is not assembled yet (status: {session.status}). "
                 "Run 'assemble' first."
@@ -62,6 +63,7 @@ def export_session(
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     sport = session.sport or "video"
+    out_root = Path(output_dir) if output_dir else config.OUTPUT_DIR
 
     output_paths: list[Path] = []
 
@@ -72,7 +74,7 @@ def export_session(
 
         settings = _ENCODE_SETTINGS[aspect]
         filename = f"{date_str}_{sport}_{settings['suffix']}.mp4"
-        dest = config.OUTPUT_DIR / filename
+        dest = out_root / filename
 
         _log(f"Exporting {aspect} → {dest.name} …")
         _encode(preview_path, dest, settings, console)
@@ -87,7 +89,7 @@ def export_session(
                 duration_s=duration,
             ))
             s = db.query(Session).filter(Session.id == session_id).first()
-            s.status = "exported"
+            s.status = SessionStatus.EXPORTED
 
         output_paths.append(dest)
         _log(f"  [green]✓[/green] {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")

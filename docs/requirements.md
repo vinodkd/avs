@@ -151,3 +151,6 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 | Preset marketplace | Needs user base first |
 | Windows / Mac builds | Cross-platform by design; add after Linux is solid |
 | Frame-precise timeline editing | Contradicts the "not a video editor" principle |
+| Session deletion with artifact cleanup | Artifacts (proxies, thumbnails) are keyed by clip UUID, not source filename — a new session for the same video will get a new UUID and regenerate them anyway, so old artifacts from abandoned sessions are orphaned. A `clean` command should let the user delete a session and optionally its artifacts. Deferred until the happy path is solid. |
+| Clip ID keyed to video file not session | Currently clip IDs are random UUIDs assigned at ingest, so artifacts are never reused across sessions for the same file. Keying on `sha256(filename + filesize)[:32]` would allow artifact reuse and make the `clean` command simpler. Requires upsert logic on ingest and a schema change. |
+| Decouple assemble/export/review from CLI | `assemble`, `export`, and `review` pipeline functions still accept a `console: Console` parameter (CLI-coupled). Refactor them to use the same `on_event` callback pattern as `analyze_session`, then give the CLI its own rich renderer for each — same pattern already done for analysis. |

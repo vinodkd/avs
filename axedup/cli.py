@@ -11,6 +11,48 @@ app = typer.Typer(
 console = Console()
 
 
+def _make_rich_handler(cons: "Console"):
+    """Return an on_event callback that renders pipeline events as rich progress."""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=cons,
+        transient=True,
+    )
+    _tasks: dict[tuple, int] = {}  # (clip_id, stage) -> rich task id
+    _started = [False]
+
+    def on_event(clip_id, stage, status, message, completed, total):
+        if not _started[0]:
+            progress.start()
+            _started[0] = True
+
+        if message:
+            cons.log(message)
+
+        if clip_id is None:
+            if stage == 'session' and status == 'done':
+                progress.stop()
+            return  # session-level events: message already logged above
+
+        key = (clip_id, stage)
+        if status == 'running':
+            task_id = progress.add_task(f"  {stage}", total=total or 100)
+            _tasks[key] = task_id
+        elif status == 'progress' and key in _tasks:
+            progress.update(_tasks[key], completed=completed or 0)
+        elif status in ('done', 'skipped') and key in _tasks:
+            progress.update(_tasks[key], completed=total or 100)
+            progress.remove_task(_tasks.pop(key))
+
+    return on_event
+
+
 def _startup() -> None:
     init_db()
 
@@ -57,7 +99,7 @@ def analyze(
 
     motion_method = "jpg" if jpg else "proxy"
     console.print(f"[bold]Analyzing session[/bold] {session_id} … (motion: {motion_method})")
-    analyze_session(session_id, console=console, motion_method=motion_method)
+    analyze_session(session_id, motion_method=motion_method, on_event=_make_rich_handler(console))
     console.print(f"\nNext step: [bold]axedup review {session_id}[/bold]")
 
 
@@ -162,6 +204,16 @@ def sessions(
             r.status,
         )
     console.print(table)
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(8765, "--port", help="Port for the local web server"),
+) -> None:
+    """Launch the AxEdUp desktop UI."""
+    _startup()
+    from axedup.ui.app import start
+    start(port=port)
 
 
 @app.command()

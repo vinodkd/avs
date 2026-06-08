@@ -558,7 +558,7 @@ Persistent left sidebar showing the six workflow steps in order. Each step shows
 
 ### Home / History screen
 
-Landing page before any session is selected. Lists past sessions from the DB: sport badge, date, clip count, total duration, status, and a "Continue →" button that resumes at the next pending step. New session button at top.
+Landing page before any session is selected. Lists past sessions from the DB: sport badge, date, clip count, total duration, status, a "Continue →" button that resumes at the next pending step, and a delete button that removes the session and all its DB records (clips, marks, telemetry, exports). Analysis files (proxies, thumbnails) are not deleted — they are orphaned on disk and handled separately via the `clean` command (backlogged). New session button at top.
 
 ### Load screen
 
@@ -566,15 +566,15 @@ Folder picker (or SD card auto-detected via watchdog). Sport dropdown. Scan dept
 
 ### Scan screen
 
-Live progress per clip — one row per clip, sub-rows for each stage (proxy / thumbnails / scenes / motion). A **Pause** button is shown between stages (not mid-stage); the pipeline checks a flag at step boundaries and halts until resumed.
+Live progress per clip — one row per clip, one badge per stage. Stage labels use layman terms: **Working Copy** (proxy), **Previews** (thumbnails), **Scenes**, **Motion**. The Working Copy badge shows a percentage while generating (e.g. `▶ Working Copy 45%`). Badges update at 0.5 s intervals. A **Pause** button is shown between stages (backlogged; pipeline checks a flag at step boundaries and halts until resumed).
 
 ### Pick screen
 
-**Top zone — video player.** Plays the full proxy for the active clip. Segment start times serve as bookmarks: clicking a clip card below seeks the player to that `in_s`.
+**Top zone — video player.** Plays the full proxy for the active clip (`src=` attribute, `preload="metadata"`). Clicking a card in the strip seeks and plays that segment.
 
-**Bottom zone — clip strip.** Horizontally scrollable compact cards (one per accepted mark candidate). Each card shows a short looping video preview (2–3s extracted from proxy around the mark midpoint, `<video autoplay loop muted>`), time range, score bar, and Accept / Reject buttons. Clicking a card seeks the player; buttons toggle status in the DB on click.
+**Bottom zone — clip strip.** Compact cards, one per candidate mark. Each shows a thumbnail near the mark midpoint, time range, score bar, and Accept / Reject buttons. All marks default to **accepted** (green border) — the user only needs to click ✗ on clips they want to exclude. This matches the CLI HTML review page behaviour. After applying, REJECTED marks are written to the DB and hidden on the next visit; CANDIDATE/ACCEPTED marks remain visible.
 
-Source toggle (proxy vs JPEG candidates) is backlogged — in practice the user picks one source at assembly time via `--source`, and Pick shows all marks from the most recent analysis run.
+Source toggle (proxy vs JPEG candidates) is backlogged.
 
 ### Cut screen
 

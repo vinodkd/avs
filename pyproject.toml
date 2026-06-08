@@ -27,8 +27,9 @@ dependencies = [
     # Terminal output
     "rich>=13.0",
 
-    # Phase 2 — UI and LLM (included now, used later)
-    "nicegui>=1.4",
+    # Phase 2 — UI and LLM
+    "nicegui>=3.0",
+    "pywebview>=4.0",
     "ollama>=0.2",
 ]
 

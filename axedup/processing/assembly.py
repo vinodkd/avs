@@ -16,7 +16,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from axedup import config
 from axedup.models.db import get_session
-from axedup.models.schema import Clip, Mark, Profile, Session
+from axedup.models.schema import Clip, Mark, MarkStatus, Profile, Session, SessionStatus
 from axedup.presets.sports import DEFAULT_PROFILES
 
 # FFmpeg eq/colorbalance filter string per grade style (None = no adjustment)
@@ -64,7 +64,7 @@ def assemble_session(
             db.query(Mark)
             .join(Clip, Mark.clip_id == Clip.id)
             .filter(Mark.clip_id.in_(clips.keys()))
-            .filter(Mark.status == "accepted")
+            .filter(Mark.status == MarkStatus.ACCEPTED)
         )
         if source_filter:
             db_source = _SOURCE_MAP.get(source_filter, source_filter)
@@ -140,7 +140,7 @@ def assemble_session(
     # --- Update session status ---
     with get_session() as db:
         s = db.query(Session).filter(Session.id == session_id).first()
-        s.status = "assembled"
+        s.status = SessionStatus.ASSEMBLED
 
     _log(f"[green]Preview ready:[/green] {preview_path}")
     _log(f"Opening with system video player …")

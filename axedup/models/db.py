@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -33,6 +33,33 @@ def init_db() -> None:
     _engine = _get_engine()
     Base.metadata.create_all(_engine)
     _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False)
+    _migrate(_engine)
+
+
+def _migrate(engine) -> None:
+    """Apply in-place data migrations for schema evolution.
+
+    Each migration is idempotent — safe to run on every startup.
+    """
+    with engine.connect() as conn:
+        # M001: 'ready' now means "analysis complete". Sessions that were set
+        # to 'ready' by ingest (before analysis ran) should be 'ingested'.
+        # Heuristic: a session with no marks has not been analysed yet.
+        conn.execute(
+            text(
+                """
+                UPDATE sessions
+                SET status = 'ingested'
+                WHERE status = 'ready'
+                AND id NOT IN (
+                    SELECT DISTINCT c.session_id
+                    FROM clips c
+                    INNER JOIN marks m ON m.clip_id = c.id
+                )
+                """
+            )
+        )
+        conn.commit()
 
 
 def get_engine() -> Engine:

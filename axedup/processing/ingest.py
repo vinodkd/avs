@@ -15,20 +15,32 @@ from rich.console import Console
 
 from axedup import config
 from axedup.models.db import get_session
-from axedup.models.schema import Clip, Session
+from axedup.models.schema import Clip, Session, SessionStatus
 
 VIDEO_SUFFIXES = {".mp4", ".mov"}
 MIN_DURATION_S = 5.0
 
 
-def ingest_folder(source: Path, sport: str, console: Console | None = None) -> Session:
+def ingest_folder(
+    source: Path,
+    sport: str,
+    console: Console | None = None,
+    files: list[Path] | None = None,
+) -> Session:
     """
-    Scan *source* (file or folder) for video files, write a Session and Clips to the DB.
+    Scan *source* for video files and write a Session + Clips to the DB.
+
+    If *files* is given, only those specific files are imported (source is still
+    recorded as the session root for reference). If *source* is a single file,
+    only that file is imported. Otherwise the whole folder is scanned.
     Returns the persisted Session.
     """
     _log = _logger(console)
 
-    if source.is_file():
+    if files is not None:
+        video_files = [f for f in files if f.suffix.lower() in VIDEO_SUFFIXES]
+        _log(f"Importing {len(video_files)} selected file(s)")
+    elif source.is_file():
         if source.suffix.lower() not in VIDEO_SUFFIXES:
             raise ValueError(f"{source.name} is not a supported video file")
         video_files = [source]
@@ -85,7 +97,7 @@ def ingest_folder(source: Path, sport: str, console: Console | None = None) -> S
         camera=dominant_camera,
         total_clips=len(clips),
         total_duration_s=sum(c.duration_s for c in clips),
-        status="ready",
+        status=SessionStatus.INGESTED,
     )
 
     with get_session() as db:

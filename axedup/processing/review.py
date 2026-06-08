@@ -17,7 +17,7 @@ from rich.console import Console
 
 from axedup import config
 from axedup.models.db import get_session
-from axedup.models.schema import Clip, Mark, Session
+from axedup.models.schema import Clip, Mark, MarkStatus, Session
 
 
 def open_review(session_id: str, console: Console | None = None) -> None:
@@ -36,7 +36,7 @@ def open_review(session_id: str, console: Console | None = None) -> None:
         all_marks = (
             db.query(Mark)
             .filter(Mark.clip_id.in_(clips.keys()))
-            .filter(Mark.status.in_(["candidate", "accepted"]))
+            .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED]))
             .order_by(Mark.in_s)
             .all()
         )
@@ -92,7 +92,7 @@ def _apply_decisions(decisions: dict[str, bool], console: Console | None) -> Non
         for mark_id, is_accepted in decisions.items():
             mark = db.query(Mark).filter(Mark.id == mark_id).first()
             if mark:
-                mark.status = "accepted" if is_accepted else "rejected"
+                mark.status = MarkStatus.ACCEPTED if is_accepted else MarkStatus.REJECTED
                 if is_accepted:
                     accepted += 1
                 else:
@@ -188,7 +188,7 @@ def _build_html(mark_groups: dict[str, list[Mark]], clips: dict[str, Clip]) -> s
             time_range = f"{_fmt_time(mark.in_s)} – {_fmt_time(mark.out_s)}"
             score_pct = int((mark.score or 0) * 100)
             clip_name = clip.filename if clip else "unknown"
-            prior = mark.status == "accepted"
+            prior = mark.status == MarkStatus.ACCEPTED
             prior_badge = '<span class="prior-badge">previously accepted</span>' if prior else ""
 
             cards_html += f"""

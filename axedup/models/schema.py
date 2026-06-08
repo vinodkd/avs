@@ -1,3 +1,4 @@
+import enum
 import uuid
 from datetime import datetime
 
@@ -7,6 +8,23 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
+
+
+class SessionStatus(str, enum.Enum):
+    """Lifecycle states for a Session. Stored as strings in the DB."""
+    IMPORTING = "importing"   # ingest running
+    INGESTED  = "ingested"    # ingest complete, analysis not yet started
+    ANALYZING = "analyzing"   # analysis pipeline running
+    READY     = "ready"       # analysis complete, marks available for review
+    ASSEMBLED = "assembled"   # preview video built
+    EXPORTED  = "exported"    # final output written
+
+
+class MarkStatus(str, enum.Enum):
+    """Review state for a candidate Mark."""
+    CANDIDATE = "candidate"
+    ACCEPTED  = "accepted"
+    REJECTED  = "rejected"
 
 
 def _uuid() -> str:
@@ -23,8 +41,7 @@ class Session(Base):
     camera: Mapped[str | None]   = mapped_column(String, nullable=True)
     total_clips: Mapped[int | None]      = mapped_column(Integer, nullable=True)
     total_duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # importing | analyzing | ready | assembled | exported
-    status: Mapped[str] = mapped_column(String, default="importing")
+    status: Mapped[str] = mapped_column(String, default=SessionStatus.IMPORTING)
 
     clips: Mapped[list["Clip"]]     = relationship(back_populates="session", cascade="all, delete-orphan")
     exports: Mapped[list["Export"]] = relationship(back_populates="session", cascade="all, delete-orphan")
@@ -90,8 +107,7 @@ class Mark(Base):
     score: Mapped[float | None]  = mapped_column(Float, nullable=True)
     # telemetry_peak | motion_peak | audio_peak | user | llm
     source: Mapped[str]  = mapped_column(String, nullable=False)
-    # candidate | accepted | rejected
-    status: Mapped[str]  = mapped_column(String, nullable=False, default="candidate")
+    status: Mapped[str]  = mapped_column(String, nullable=False, default=MarkStatus.CANDIDATE)
     order_in_edit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     clip: Mapped["Clip"] = relationship(back_populates="marks")

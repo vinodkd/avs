@@ -6,26 +6,30 @@ with pre/post padding, merges overlapping regions, and writes Mark rows to the D
 """
 
 from axedup.models.db import get_session
-from axedup.models.schema import Clip, Mark, Profile, Session, TelemetryPoint
+from axedup.models.schema import Clip, Mark, MarkStatus, Profile, Session, TelemetryPoint
 from axedup.presets.sports import DEFAULT_PROFILES
 
-# Seconds of context around each peak
 PRE_PADDING_S = 2.0
 POST_PADDING_S = 5.0
-
-# Peaks within this distance of each other are merged
 MIN_PEAK_DISTANCE_S = 4.0
 
+_NOOP = lambda *_: None
 
-def detect_peaks(session_id: str, console=None, motion_method: str = "proxy") -> int:
+
+def detect_peaks(
+    session_id: str,
+    on_event=None,
+    motion_method: str = "proxy",
+) -> int:
     """
     Generate candidate Mark rows for every clip in *session_id*.
     Returns total number of candidates created.
 
     motion_method: 'proxy' uses motion_intensity; 'jpg' uses motion_intensity_quick.
     Marks are tagged 'motion_peak' or 'motion_peak_jpg' accordingly.
+    on_event: same OnEvent callback as analyze_session — fires per-clip done events.
     """
-    _log = _logger(console)
+    _notify = on_event or _NOOP
 
     with get_session() as db:
         session = db.query(Session).filter(Session.id == session_id).first()
@@ -48,8 +52,8 @@ def detect_peaks(session_id: str, console=None, motion_method: str = "proxy") ->
 
     total = 0
     for clip in clips:
-        n = _detect_clip_peaks(clip, motion_threshold, console, motion_method)
-        _log(f"  {clip.filename}: {n} candidate(s)")
+        n = _detect_clip_peaks(clip, motion_threshold, motion_method)
+        _notify(clip.id, 'peaks', 'done', f"{clip.filename}: {n} candidate(s)", None, None)
         total += n
 
     return total
@@ -59,12 +63,11 @@ def detect_peaks(session_id: str, console=None, motion_method: str = "proxy") ->
 # Per-clip peak detection
 # ---------------------------------------------------------------------------
 
-def _detect_clip_peaks(clip: Clip, motion_threshold: float, console=None, motion_method: str = "proxy") -> int:
+def _detect_clip_peaks(clip: Clip, motion_threshold: float, motion_method: str = "proxy") -> int:
     """Find peaks in this clip's motion signal and write Mark candidates."""
     source = "motion_peak_jpg" if motion_method == "jpg" else "motion_peak"
 
     with get_session() as db:
-        # Clear existing candidates of this source only — preserves the other method's marks
         db.query(Mark).filter(
             Mark.clip_id == clip.id,
             Mark.source == source,
@@ -107,7 +110,7 @@ def _detect_clip_peaks(clip: Clip, motion_threshold: float, console=None, motion
             out_s=out_s,
             score=round(score, 4),
             source=source,
-            status="candidate",
+            status=MarkStatus.CANDIDATE,
         )
         for in_s, out_s, score in regions
     ]
@@ -128,17 +131,9 @@ def _find_peaks(
     threshold: float,
     min_distance_s: float = MIN_PEAK_DISTANCE_S,
 ) -> list[int]:
-    """
-    Return indices of local maxima above *threshold* with minimum spacing.
-
-    Simple sliding-window approach: a point is a local max if it exceeds both
-    its immediate neighbours and is above the threshold. When two peaks are
-    closer than min_distance_s, only the higher one is kept.
-    """
     if len(values) < 3:
         return []
 
-    # Find raw local maxima above threshold
     candidates = []
     for i in range(1, len(values) - 1):
         if values[i] >= threshold and values[i] >= values[i - 1] and values[i] >= values[i + 1]:
@@ -147,7 +142,6 @@ def _find_peaks(
     if not candidates:
         return []
 
-    # Enforce minimum distance: prefer higher peak when two are too close
     kept = [candidates[0]]
     for idx in candidates[1:]:
         if timestamps[idx] - timestamps[kept[-1]] >= min_distance_s:
@@ -164,7 +158,6 @@ def _peaks_to_regions(
     intensities: list[float],
     clip_duration_s: float,
 ) -> list[tuple[float, float, float]]:
-    """Expand each peak index into (in_s, out_s, score), clipped to clip bounds."""
     regions = []
     for idx in peak_indices:
         t = timestamps[idx]
@@ -178,7 +171,6 @@ def _peaks_to_regions(
 def _merge_overlapping(
     regions: list[tuple[float, float, float]],
 ) -> list[tuple[float, float, float]]:
-    """Merge regions that overlap, keeping the highest score."""
     if not regions:
         return []
 
@@ -187,14 +179,10 @@ def _merge_overlapping(
 
     for in_s, out_s, score in sorted_regions[1:]:
         prev = merged[-1]
-        if in_s <= prev[1]:           # overlaps with previous
+        if in_s <= prev[1]:
             prev[1] = max(prev[1], out_s)
             prev[2] = max(prev[2], score)
         else:
             merged.append([in_s, out_s, score])
 
     return [(r[0], r[1], r[2]) for r in merged]
-
-
-def _logger(console):
-    return console.log if console else print
