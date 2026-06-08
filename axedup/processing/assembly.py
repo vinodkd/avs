@@ -60,22 +60,28 @@ def assemble_session(
 
         clips = {c.id: c for c in db.query(Clip).filter(Clip.session_id == session_id).all()}
 
-        q = (
-            db.query(Mark)
-            .join(Clip, Mark.clip_id == Clip.id)
-            .filter(Mark.clip_id.in_(clips.keys()))
-            .filter(Mark.status == MarkStatus.ACCEPTED)
-        )
-        if source_filter:
-            db_source = _SOURCE_MAP.get(source_filter, source_filter)
-            q = q.filter(Mark.source == db_source)
-        marks = q.order_by(Clip.clip_order, Mark.in_s).all()
+        def _mark_query(status_filter):
+            q = (
+                db.query(Mark)
+                .join(Clip, Mark.clip_id == Clip.id)
+                .filter(Mark.clip_id.in_(clips.keys()))
+                .filter(status_filter)
+            )
+            if source_filter:
+                db_source = _SOURCE_MAP.get(source_filter, source_filter)
+                q = q.filter(Mark.source == db_source)
+            return q.order_by(Clip.clip_order, Mark.in_s).all()
+
+        marks = _mark_query(Mark.status == MarkStatus.ACCEPTED)
+        if not marks:
+            # User hasn't saved picks yet — use all candidates as-is
+            marks = _mark_query(Mark.status == MarkStatus.CANDIDATE)
 
         profile = db.query(Profile).filter(Profile.sport == session.sport).first()
 
     marks = [m for m in marks if m.id not in remove_mark_ids]
     if not marks:
-        raise ValueError("No accepted marks found. Run 'review' first and accept some clips.")
+        raise ValueError("No marks found. Analysis may not have completed yet.")
 
     if not source_filter:
         sources_present = {m.source for m in marks}

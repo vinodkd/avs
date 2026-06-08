@@ -56,9 +56,11 @@ def sidebar(active: str, session_id: str | None = None, status: str | None = Non
             )
             bg = 'background:rgba(255,255,255,0.06);' if is_active else ''
 
-            with ui.item().style(item_style + bg) as nav_item:
-                if clickable:
-                    nav_item.on('click', lambda u=url: ui.navigate.to(u))
+            with ui.item(
+                on_click=(lambda u=url: ui.navigate.to(u)) if clickable else None,
+            ).props(
+                ('clickable v-ripple' if clickable else '')
+            ).style(item_style + bg):
 
                 with ui.item_section().props('avatar'):
                     ui.icon(icon).style(f'color:{color}; font-size:1.1rem')

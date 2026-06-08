@@ -545,52 +545,50 @@ The CLI remains the primary interface throughout. `axedup ui` (or `python run.py
 
 ### Navigation
 
-Persistent left sidebar showing the six workflow steps in order. Each step shows its status (not started / in progress / done) for the active session. Clicking a completed step returns to it.
+Collapsible left sidebar (always visible; collapses to icon strip via Quasar mini mode). Items: Home, Current Edit, Settings (future). Uses `ui.left_drawer` with `breakpoint=0` so it never auto-hides.
 
-| Sidebar label | Maps to |
-|---|---|
-| **Load** | Ingest — import footage from folder or SD card |
-| **Scan** | Analysis — proxy, thumbnails, scene detection, motion intensity |
-| **Pick** | Review — select clips to include |
-| **Cut** | Assembly — grade, order, preview |
-| **Save** | Export — final encode, aspect ratio selection |
-| **Share** | Upload — YouTube, Instagram (future; visible in sidebar but greyed out) |
+### Home / History screen (`/`)
 
-### Home / History screen
+Lists past sessions from the DB: sport badge, date, clip count, total duration, status badge, "Continue →" button, delete button. Delete removes all DB records and cached files (proxies, thumbnails, jpeg_frames, segments, preview). "Select source video" button at top navigates to `/load`.
 
-Landing page before any session is selected. Lists past sessions from the DB: sport badge, date, clip count, total duration, status, a "Continue →" button that resumes at the next pending step, and a delete button that removes the session and all its DB records (clips, marks, telemetry, exports). Analysis files (proxies, thumbnails) are not deleted — they are orphaned on disk and handled separately via the `clean` command (backlogged). New session button at top.
+### Load screen (`/load`)
 
-### Load screen
+File/folder picker, sport dropdown, scan method radio (Quick = JPEG frames / Full = optical flow). Start button ingests footage, immediately starts background analysis, and navigates to `/session/{id}`.
 
-Folder picker (or SD card auto-detected via watchdog). Sport dropdown. Scan depth radio: **Quick scan** (JPEG motion method) or **Full scan** (proxy-based, more accurate). Start button. Once a folder is selected, shows detected filenames and durations for confirmation before committing.
+### Session screen (`/session/{id}`) — planned 3-pane redesign
 
-### Scan screen
+Single page containing the entire editing workflow. Layout:
 
-Live progress per clip — one row per clip, one badge per stage. Stage labels use layman terms: **Working Copy** (proxy), **Previews** (thumbnails), **Scenes**, **Motion**. The Working Copy badge shows a percentage while generating (e.g. `▶ Working Copy 45%`). Badges update at 0.5 s intervals. A **Pause** button is shown between stages (backlogged; pipeline checks a flag at step boundaries and halts until resumed).
+```
+┌──────────────────────────────┬─────────────────────┐  60% tall
+│  Video player (60% wide)     │  Step list (40%wide) │
+│  + timeline strip once clips │  Title, subtitle,    │
+│    are found (stays until    │  status dot, est vs  │
+│    picks are saved)          │  actual times,       │
+│                              │  counts found        │
+├──────────────────────────────┴─────────────────────┤  40% tall
+│  Detail pane — progress bars + context for         │
+│  selected step                     [Next action →] │
+└────────────────────────────────────────────────────┘
+```
 
-### Pick screen
+**Top-left (60 × 60%):** Video player. Empty placeholder until proxy exists. Once proxy is built, player fills 80% of pane height; timeline strip (proportional clip/mark bars) occupies the remaining 20% and is visible whenever the Pick step is active or selected. After assembly, player source switches to preview; after export, to the exported file.
 
-**Top zone — video player.** Plays the full proxy for the active clip (`src=` attribute, `preload="metadata"`). Clicking a card in the strip seeks and plays that segment.
+**Top-right (40 × 60%):** Step nav list — always visible summary panel. One row per step: status dot (grey/amber-pulse/green), step title, subtitle, estimated vs actual time taken, count of items found (clips, marks, etc.). Clicking a row selects it and loads its detail into the bottom pane. Steps are not an access-controlled stepper; the right pane is purely informational nav — the next-action button in the bottom pane is the only forward gate.
 
-**Bottom zone — clip strip.** Compact cards, one per candidate mark. Each shows a thumbnail near the mark midpoint, time range, score bar, and Accept / Reject buttons. All marks default to **accepted** (green border) — the user only needs to click ✗ on clips they want to exclude. This matches the CLI HTML review page behaviour. After applying, REJECTED marks are written to the DB and hidden on the next visit; CANDIDATE/ACCEPTED marks remain visible.
+**Bottom (100 × 40%):** Context detail for the selected step. Shows `ui.linear_progress` bars for each sub-stage (proxy, snapshots, scenes, motion — and assembly, export). Completed bars stay visible. Input step shows source browse UI here. Next-action button pinned to bottom-right; its label and enabled state reflect what's possible at the current moment.
 
-Source toggle (proxy vs JPEG candidates) is backlogged.
+Steps: **1 — Input** (choose footage) · **2 — Analyze** (build working copy + find clips) · **3 — Pick** (accept/reject clips) · **4 — Combine** (colour grade + assemble preview) · **5 — Export** (encode final file)
 
-### Cut screen
-
-Grade picker, Assemble button, embedded preview player once built. Secondary panel for refine controls (remove a clip).
-
-### Save screen
-
-Aspect ratio checkboxes (16:9, 9:16), Export button, progress bar with ETA, output path on completion.
+Assembly falls back to CANDIDATE marks if no ACCEPTED marks exist (user skipped Save Picks).
 
 ### Share screen (future, Phase 3)
 
-Platform tiles (YouTube, Instagram), per-platform metadata, auth flow. Not implemented in Phase 1 or 2.
+Platform tiles (YouTube, Instagram), per-platform metadata, auth flow. Not implemented.
 
 ### Settings screen (backlog)
 
-Sport profile editor: per-sport thresholds, grade defaults, scene detection params. Global: cache dir, custom FFmpeg path. Deferred until core workflow is solid.
+Sport profile editor, global cache dir, custom FFmpeg path.
 
 ---
 

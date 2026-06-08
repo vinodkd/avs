@@ -20,7 +20,7 @@ def home_page() -> None:
     with ui.column().style('padding: 2rem; width: 100%; min-height: 100vh; background: #111'):
         with ui.row().style('align-items: center; justify-content: space-between; margin-bottom: 1.5rem; width: 100%'):
             ui.label('Sessions').style('color: #eee; font-size: 1.4rem; font-weight: 700')
-            ui.button('Import footage', on_click=lambda: ui.navigate.to('/load')).props('color=positive flat')
+            ui.button('Select source video', on_click=lambda: ui.navigate.to('/load')).props('color=positive flat')
 
         with db_session() as db:
             rows = [
@@ -31,7 +31,7 @@ def home_page() -> None:
         if not rows:
             with ui.card().style('background: #1e1e1e; padding: 2rem; text-align: center; width: 100%'):
                 ui.label('No sessions yet.').style('color: #666; margin-bottom: 1rem')
-                ui.button('Import footage →', on_click=lambda: ui.navigate.to('/load')).props('color=positive flat')
+                ui.button('Select source video →', on_click=lambda: ui.navigate.to('/load')).props('color=positive flat')
             return
 
         for sid, sport, created_at, clips, duration, status in rows:
