@@ -13,6 +13,7 @@ def start(port: int = 8765) -> None:
     # Serve cached files so the video player and thumbnails work
     app.add_static_files('/proxies', str(config.PROXY_DIR))
     app.add_static_files('/thumbs', str(config.THUMB_DIR))
+    app.add_static_files('/stills', str(config.STILL_DIR))
     app.add_static_files('/previews', str(config.PREVIEW_DIR))
 
     # Import screens to register their @ui.page routes before ui.run()

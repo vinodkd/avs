@@ -7,9 +7,9 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from axedup import config
 from axedup.models.db import get_session
@@ -39,6 +39,7 @@ def export_session(
     aspects: list[str] | None = None,
     console: Console | None = None,
     output_dir: Path | None = None,
+    on_progress: Callable[[str, int], None] | None = None,
 ) -> list[Path]:
     """
     Export the assembled preview for *session_id* in each requested aspect ratio.
@@ -77,7 +78,9 @@ def export_session(
         dest = out_root / filename
 
         _log(f"Exporting {aspect} → {dest.name} …")
-        _encode(preview_path, dest, settings, console)
+        def _prog(pct: int, _asp: str = aspect) -> None:
+            if on_progress: on_progress(_asp, pct)
+        _encode(preview_path, dest, settings, console, on_progress=_prog)
 
         duration = _get_duration(dest)
 
@@ -97,7 +100,8 @@ def export_session(
     return output_paths
 
 
-def _encode(source: Path, dest: Path, settings: dict, console: Console | None = None) -> None:
+def _encode(source: Path, dest: Path, settings: dict, console: Console | None = None,
+            on_progress: Callable[[int], None] | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     duration = _get_duration(source) or 0
     timeout = max(600, int(duration * 20))
@@ -116,37 +120,25 @@ def _encode(source: Path, dest: Path, settings: dict, console: Console | None = 
         str(dest),
     ]
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        TextColumn("eta"),
-        TimeRemainingColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("encoding", total=100)
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        deadline = time.time() + timeout
-        timed_out = False
-        try:
-            for line in process.stdout:
-                if time.time() > deadline:
-                    timed_out = True
-                    process.kill()
-                    break
-                if line.startswith("out_time_ms=") and duration:
-                    try:
-                        out_ms = int(line.split("=", 1)[1].strip())
-                        pct = min(100, int(out_ms / (duration * 1_000_000) * 100))
-                        progress.update(task, completed=pct)
-                    except (ValueError, ZeroDivisionError):
-                        pass
-            process.wait()
-        finally:
-            pass
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    deadline = time.time() + timeout
+    timed_out = False
+    try:
+        for line in process.stdout:
+            if time.time() > deadline:
+                timed_out = True
+                process.kill()
+                break
+            if line.startswith("out_time_ms=") and duration:
+                try:
+                    out_ms = int(line.split("=", 1)[1].strip())
+                    pct = min(100, int(out_ms / (duration * 1_000_000) * 100))
+                    if on_progress: on_progress(pct)
+                except (ValueError, ZeroDivisionError):
+                    pass
+        process.wait()
+    finally:
+        pass
 
     if timed_out:
         dest.unlink(missing_ok=True)

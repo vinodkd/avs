@@ -15,6 +15,7 @@ class StageState:
     pct: int | None = None        # 0-100, derived from completed/total when available
     completed: int | None = None  # raw numerator (frames, seconds, percent-points)
     total: int | None = None      # raw denominator
+    message: str | None = None    # phase label e.g. "Extracting" / "Comparing"
 
 
 # {session_id: {clip_id: {stage: StageState}}}
@@ -50,6 +51,7 @@ def update_clip_stage(
     pct: int | None = None,
     completed: int | None = None,
     total: int | None = None,
+    message: str | None = None,
 ) -> None:
     with _lock:
         if session_id not in _progress:
@@ -61,6 +63,7 @@ def update_clip_stage(
             pct=pct,
             completed=completed,
             total=total,
+            message=message,
         )
 
 
@@ -69,7 +72,7 @@ def get_clip_progress(session_id: str) -> dict[str, dict[str, StageState]]:
         session = _progress.get(session_id, {})
         return {
             cid: {
-                stage: StageState(status=s.status, pct=s.pct, completed=s.completed, total=s.total)
+                stage: StageState(status=s.status, pct=s.pct, completed=s.completed, total=s.total, message=s.message)
                 for stage, s in stages.items()
             }
             for cid, stages in session.items()

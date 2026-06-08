@@ -10,9 +10,9 @@ import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Callable
 
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from axedup import config
 from axedup.models.db import get_session
@@ -45,6 +45,7 @@ def assemble_session(
     grade_override: str | None = None,
     disable_overlay: bool = False,
     source_filter: str | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     """
     Assemble accepted marks into a preview video.
@@ -114,29 +115,24 @@ def assemble_session(
     encoded_dir = config.SEGMENT_DIR / "encoded"
     encoded_dir.mkdir(parents=True, exist_ok=True)
     encoded_paths = [encoded_dir / f"{mark.id}.mp4" for mark in marks]
+    total_segs = len(marks)
 
-    _log(f"Encoding {len(marks)} segment(s) …")
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("segments", total=len(marks))
-        futures = {}
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            for seg, enc in zip(segment_paths, encoded_paths):
-                if enc.exists() and _is_valid_video(enc):
-                    progress.advance(task)
-                else:
-                    enc.unlink(missing_ok=True)
-                    futures[executor.submit(_encode_segment, seg, enc, grade, disable_overlay)] = enc
-            for future in as_completed(futures):
-                future.result()
-                progress.advance(task)
+    _log(f"Encoding {total_segs} segment(s) …")
+    if on_progress: on_progress(0, total_segs)
+    done_count = [0]
+    futures = {}
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for seg, enc in zip(segment_paths, encoded_paths):
+            if enc.exists() and _is_valid_video(enc):
+                done_count[0] += 1
+                if on_progress: on_progress(done_count[0], total_segs)
+            else:
+                enc.unlink(missing_ok=True)
+                futures[executor.submit(_encode_segment, seg, enc, grade, disable_overlay)] = enc
+        for future in as_completed(futures):
+            future.result()
+            done_count[0] += 1
+            if on_progress: on_progress(done_count[0], total_segs)
 
     # --- Stage 3: Fast concat of encoded segments ---
     preview_path = config.PREVIEW_DIR / f"{session_id}_preview.mp4"

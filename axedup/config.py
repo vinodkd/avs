@@ -23,6 +23,7 @@ PREVIEW_DIR     = CACHE_DIR / "previews"
 SEGMENT_DIR     = CACHE_DIR / "segments"
 REVIEW_DIR      = CACHE_DIR / "review"
 JPEG_FRAMES_DIR = CACHE_DIR / "jpeg_frames"
+STILL_DIR       = CACHE_DIR / "stills"
 
 DB_PATH = DATA_DIR / f"{APP_NAME}.db"
 
@@ -37,7 +38,6 @@ FFPROBE_BIN = shutil.which("ffprobe") or "ffprobe"
 # --- Analysis defaults ---
 
 PROXY_HEIGHT    = 480           # px; all CV work runs on this resolution
-THUMB_INTERVAL  = 5             # seconds between thumbnails
 SCENE_THRESHOLD = 20            # PySceneDetect ContentDetector threshold (10=sensitive, 27=coarse)
 OPTICAL_FLOW_SAMPLE_INTERVAL = 0.5  # seconds between flow samples
 
@@ -49,5 +49,5 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "phi3.5")
 
 def ensure_dirs() -> None:
     """Create all app directories if they don't exist. Call at startup."""
-    for d in (OUTPUT_DIR, DATA_DIR, PROXY_DIR, THUMB_DIR, PREVIEW_DIR, SEGMENT_DIR, REVIEW_DIR, JPEG_FRAMES_DIR):
+    for d in (OUTPUT_DIR, DATA_DIR, PROXY_DIR, THUMB_DIR, PREVIEW_DIR, SEGMENT_DIR, REVIEW_DIR, JPEG_FRAMES_DIR, STILL_DIR):
         d.mkdir(parents=True, exist_ok=True)
