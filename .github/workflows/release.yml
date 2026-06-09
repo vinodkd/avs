@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-appimage:
+    runs-on: ubuntu-22.04   # oldest LTS = broadest AppImage compatibility
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            gir1.2-webkit2-4.0 \
+            libgirepository1.0-dev \
+            ffmpeg \
+            upx-ucl
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build AppImage
+        run: bash packaging/build_appimage.sh
+
+      - name: Upload AppImage to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/AxEdUp-*.AppImage
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -12,6 +12,14 @@ from axedup.ui.layout import sidebar
 def home_page() -> None:
     ui.dark_mode().enable()
 
+    from axedup.updater import get_update_available
+    new_ver = get_update_available()
+    if new_ver:
+        ui.notify(
+            f'Update available: v{new_ver} — visit github.com/vinodkd/axedup/releases',
+            type='info', timeout=0, close_button=True,
+        )
+
     drawer = ui.left_drawer(value=True).style('background: #1a1a1a; border-right: 1px solid #222')
     drawer.props('breakpoint=0 width=180 mini-width=48')
     with drawer:

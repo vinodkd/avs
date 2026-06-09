@@ -64,21 +64,40 @@ User runs:
   python -m axedup export <session_id>
 ```
 
-### Phase 2: NiceGUI + Ollama
+### UI: NiceGUI (primary interface)
 
 ```
 axedup/
-  ui/             ← NiceGUI screens (added on top of same pipeline)
-  llm/            ← Ollama client, prompt templates, response parsing
+  ui/             ← NiceGUI screens
+  llm/            ← Ollama client, prompt templates (future)
+  main.py         ← packaged app entry point (migrations → init_db → UI)
+  updater.py      ← background GitHub update check
 
 User runs:
-  python -m axedup ui     ← starts NiceGUI, opens browser to localhost:XXXX
-
-Ollama runs separately:
-  ollama serve    ← started by user or by axedup on startup if not running
+  axedup ui               ← CLI → init_db → NiceGUI native window
+  axedup-ui               ← packaged entry point (same flow)
+  dist/axedup/axedup      ← PyInstaller bundle (same flow)
 ```
 
 NiceGUI handles the server and browser communication internally — no FastAPI, no React, no manual WebSocket code. The same processing modules are called directly from NiceGUI event handlers.
+
+### Packaging
+
+```
+axedup.spec               ← PyInstaller onedir spec
+packaging/
+  build_appimage.sh       ← wraps PyInstaller output into AppImage
+  axedup.desktop          ← Linux .desktop entry
+.github/workflows/
+  release.yml             ← builds AppImage on git tag push, uploads to GitHub Release
+```
+
+Startup sequence (packaged):
+1. `main.py` runs Alembic `upgrade head` (idempotent, safe to run every launch)
+2. `init_db()` sets up SQLAlchemy engine + session factory
+3. `check_for_updates()` fires a background thread against GitHub API
+4. `start()` launches NiceGUI native window
+5. On home page load: shows update notification if a newer release was found
 
 ---
 

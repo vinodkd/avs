@@ -41,7 +41,8 @@ dev = [
 ]
 
 [project.scripts]
-axedup = "axedup.cli:app"
+axedup    = "axedup.cli:app"
+axedup-ui = "axedup.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
