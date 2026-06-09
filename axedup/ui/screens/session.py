@@ -161,22 +161,47 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
     marks_by_clip: dict = {}
     for mid, cid, in_s, out_s, *_ in mark_data:
         marks_by_clip.setdefault(cid, []).append((mid, in_s, out_s))
+
+    total_dur = sum(d for _, _, d in clip_info if d)
+    if   total_dur <= 60:   tick_iv = 10
+    elif total_dur <= 300:  tick_iv = 30
+    elif total_dur <= 1800: tick_iv = 60
+    else:                   tick_iv = 300
+
     _BG = ['#1a1a1a', '#171717', '#1c1c1c', '#181818']
     out = [
         '<div style="display:flex;width:100%;height:100%;gap:2px;background:#0a0a0a;'
-        'padding:4px 8px;box-sizing:border-box;align-items:stretch">'
+        'padding:4px 8px;box-sizing:border-box;align-items:stretch;'
+        'border:1px solid #2a2a2a;border-radius:3px;overflow:hidden">'
     ]
+    clip_start = 0.0
     for i, (cid, fname, dur_s) in enumerate(clip_info):
         if not dur_s: continue
         label = (fname[:10] + '…') if len(fname) > 10 else fname
         out.append(
             f'<div style="flex:{max(dur_s,1.0):.1f};min-width:30px;position:relative;'
-            f'border-radius:3px;overflow:hidden;background:{_BG[i%4]}">'
+            f'border-radius:2px;overflow:hidden;background:{_BG[i%4]}">'
             f'<div style="position:absolute;top:0;left:0;right:0;height:13px;'
-            f'background:rgba(0,0,0,0.6);display:flex;align-items:center;padding:0 3px">'
+            f'background:rgba(0,0,0,0.6);display:flex;align-items:center;padding:0 3px;z-index:1">'
             f'<span style="font-size:0.47rem;color:#999;white-space:nowrap;overflow:hidden;'
             f'text-overflow:ellipsis">{label} · {_fmt(int(dur_s))}</span></div>'
         )
+        # Timestamp ticks — align to global time grid so ticks line up across clips
+        first_offset = tick_iv - (clip_start % tick_iv)
+        if first_offset >= tick_iv: first_offset = 0.0
+        t = first_offset if first_offset > 0 else tick_iv
+        while t < dur_s:
+            tp = t / dur_s * 100
+            tick_label = _tsfmt(int(clip_start + t))
+            out.append(
+                f'<div style="position:absolute;top:14px;left:{tp:.2f}%;width:1px;bottom:0;'
+                f'background:rgba(255,255,255,0.07);pointer-events:none">'
+                f'<span style="position:absolute;bottom:2px;left:2px;font-size:0.38rem;'
+                f'color:rgba(255,255,255,0.28);white-space:nowrap;pointer-events:none">'
+                f'{tick_label}</span></div>'
+            )
+            t += tick_iv
+        # Mark bars
         for mid, in_s, out_s in marks_by_clip.get(cid, []):
             ip = in_s / dur_s * 100
             wp = (out_s - in_s) / dur_s * 100
@@ -192,6 +217,7 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
                 f'pointer-events:none;line-height:1">✓</span></div>'
             )
         out.append('</div>')
+        clip_start += dur_s
     out.append('</div>')
     return ''.join(out)
 
@@ -254,6 +280,7 @@ def session_page(session_id: str) -> None:
         '<style>'
         '@keyframes tl-pulse{0%,100%{opacity:1}50%{opacity:0.35}}'
         '.tl-run{animation:tl-pulse 1s ease-in-out infinite}'
+        '.q-btn.disabled,.q-btn[disabled]{opacity:0.35!important;cursor:not-allowed!important}'
         '</style>'
     )
 
@@ -343,8 +370,8 @@ def session_page(session_id: str) -> None:
             if status in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED): return 'done'
             return 'active' if post_analysis else 'pending'
         if sid == 'combine':
-            if status == SessionStatus.EXPORTED: return 'done'
-            if status == SessionStatus.ASSEMBLED or preview_path.exists(): return 'active'
+            if status in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED): return 'done'
+            if preview_path.exists(): return 'done'
             return 'pending'
         if sid == 'export':
             if status == SessionStatus.EXPORTED: return 'done'
@@ -468,11 +495,10 @@ def session_page(session_id: str) -> None:
                             ' style="width:100%;height:100%;object-fit:contain;display:none;background:#000"></video>',
                             sanitize=False,
                         )
-
                 # Timeline strip (20 % of column height)
                 with ui.column().style(
                     f'height:{_TL_H};min-height:50px;flex-shrink:0;'
-                    'overflow:hidden;background:#0a0a0a;border-top:1px solid #0d0d0d'
+                    'width:100%;overflow:hidden;background:#0a0a0a;border-top:1px solid #0d0d0d'
                 ) as _tl_col:
                     _tl_el = ui.html('', sanitize=False).style('width:100%;height:100%;display:block')
                     tl_html_ref[0] = _tl_el
@@ -521,6 +547,10 @@ def session_page(session_id: str) -> None:
 
         # ── Bottom row ─────────────────────────────────────────────────────────
         with ui.column().style(f'width:100%;height:{_BOT_H};gap:0;border-top:1px solid #1a1a1a;overflow:hidden'):
+            ui.label('Video may take a moment to load.').style(
+                'color:#3a3a3a;font-size:0.68rem;text-align:center;padding:0.15rem 0;'
+                'flex-shrink:0;background:#111;border-bottom:1px solid #181818'
+            )
             with ui.column().style('flex:1;min-height:0;overflow-y:auto;padding:0.75rem 1.25rem;gap:0') as _detail:
                 pass
             detail_ref[0] = _detail
@@ -549,6 +579,7 @@ def session_page(session_id: str) -> None:
         if not b: return
         b.set_text(label)
         b.set_enabled(enabled)
+        b.props(f'color={"positive" if enabled else "grey-7"}')
         next_action['fn'] = fn
 
     # ── Step selection ─────────────────────────────────────────────────────────
@@ -585,29 +616,25 @@ def session_page(session_id: str) -> None:
         elif step == 'proxy':
             if all_proxies_done:
                 _set_next_btn('Look for scenes by… →', True, lambda: _select_step('method'))
-            elif proxy_running:
-                _set_next_btn('Look for scenes by… →', False, None)
             else:
-                _set_next_btn('(starting shortly…)', False, None)
+                _set_next_btn('Look for scenes by… →', False, None)
         elif step == 'method':
             if _scan_started[0] or scan_running:
-                _set_next_btn('Scan running…', False, None)
+                _set_next_btn('Detecting scenes →', False, None)
             else:
                 _set_next_btn('Start scan →', all_proxies_done, _start_scan)
         elif step == 'scan':
             if has_motion_data:
                 _set_next_btn('Find clips →', True, lambda: _select_step('highlights'))
             elif scan_running or _scan_started[0]:
-                _set_next_btn('Scanning…', False, None)
+                _set_next_btn('Finding clips →', False, None)
             else:
                 _set_next_btn('Start scan →', all_proxies_done, _start_scan)
         elif step == 'highlights':
             if post_analysis:
                 _set_next_btn('Select clips →', True, lambda: _select_step('pick'))
-            elif highlights_running:
-                _set_next_btn('Select clips →', False, None)
             else:
-                _set_next_btn('(starting shortly…)', False, None)
+                _set_next_btn('Select clips →', False, None)
         elif step == 'pick':
             _set_next_btn('Save & combine clips →', bool(mark_data), _save_and_combine)
         elif step == 'combine':
@@ -692,14 +719,17 @@ def session_page(session_id: str) -> None:
             with ui.row().style('align-items:center;gap:0.5rem;margin-bottom:0.75rem'):
                 ui.icon('check_circle').style('color:#5a9a5a;font-size:1rem')
                 ui.label('Scenes detected — see Finding clips… for results.').style('color:#5a9a5a;font-size:0.82rem')
-        elif not scan_running and not _scan_started[0]:
+        elif scan_running or _scan_started[0]:
+            ui.html('<span class="tl-run" style="color:#f0a040;font-size:0.82rem">Detecting scenes…</span>',
+                    sanitize=False).style('margin-bottom:0.5rem;display:block')
+        else:
             ui.label('Click Start scan → below to begin detecting scenes.').style('color:#666;font-size:0.82rem;margin-bottom:0.5rem')
+        # Show bars for all clips as soon as scan is started (pending state until events arrive)
+        if not has_motion_data and not scan_running and not _scan_started[0]:
+            return
         first_clip = True
         for cid, fname, _ in clip_info:
             cp = prog.get(cid, {})
-            has_data = any(cp.get(s, StageState()).status != 'pending' for s in _SCAN_STAGES)
-            if not has_data and not has_motion_data:
-                continue
             ui.label(fname).style('color:#666;font-size:0.75rem;font-family:monospace;margin-top:0.5rem;margin-bottom:0.25rem')
             bar_refs.setdefault(cid, {})
             for stage in _SCAN_STAGES:
@@ -721,7 +751,9 @@ def session_page(session_id: str) -> None:
                 ui.icon('check_circle').style('color:#5a9a5a;font-size:1rem')
                 ui.label(f'{n} clip{"s" if n!=1 else ""} found — see Select clips to review').style('color:#5a9a5a;font-size:0.82rem')
         elif highlights_running:
-            ui.label('Finding peak moments…').style('color:#f0a040;font-size:0.82rem')
+            ui.html('<span class="tl-run" style="color:#f0a040;font-size:0.82rem">Finding clips…</span>',
+                    sanitize=False).style('display:block;margin-bottom:0.25rem')
+            ui.label('Peak detection is fast — usually done in seconds.').style('color:#666;font-size:0.75rem')
         else:
             ui.label('Clip detection runs automatically after scenes are detected.').style('color:#666;font-size:0.82rem')
 
@@ -730,6 +762,41 @@ def session_page(session_id: str) -> None:
     _combine_err_ref    = [None]
     _combine_status_ref = [None]
     _combine_bar_ref    = [None]
+    _combine_done_ref   = [False]
+    _c_done_ref         = [0]
+    _c_total_ref        = [0]
+
+    def _combine_bar_content(done: int, total: int, finished: bool = False) -> str:
+        if finished:
+            return (
+                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
+                '<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">Combining</span>'
+                '<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a">'
+                '<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
+                '<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
+                '</div>'
+            )
+        if total:
+            pct = int(done / total * 100)
+            lbl = f'Combining {done}/{total}'
+            return (
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
+                f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{lbl}</span>'
+                f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
+                f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;'
+                f'transition:width 0.3s ease"></div></div>'
+                f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
+                f'</div>'
+            )
+        return (
+            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
+            '<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">Combining</span>'
+            '<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
+            '<div style="height:100%;width:40%;background:#f0a040;border-radius:4px;'
+            'animation:tl-pulse 1.5s ease-in-out infinite"></div></div>'
+            '<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">…</span>'
+            '</div>'
+        )
 
     def _detail_combine() -> None:
         if preview_path.exists():
@@ -751,6 +818,14 @@ def session_page(session_id: str) -> None:
         _combine_bar_ref[0]    = _cbar
         _combine_err_ref[0]    = _cerr
         _combine_status_ref[0] = _cstatus
+        # Restore current state immediately when re-entering this step
+        _ctask = state.get_task(f'assemble_{session_id}')
+        if _ctask and not _ctask.done and not _ctask.error:
+            _cbar.set_content(_combine_bar_content(_c_done_ref[0], _c_total_ref[0]))
+            _cstatus.set_text('Combining…')
+        elif preview_path.exists():
+            _cbar.set_content(_combine_bar_content(0, 0, finished=True))
+            _cstatus.set_text('Done.')
 
     _export_a16_val    = [True]
     _export_a9_val     = [False]
@@ -761,6 +836,27 @@ def session_page(session_id: str) -> None:
     _export_out_ref    = [None]
     _export_pct_ref    = [0]
     _export_aspect_ref = ['']
+
+    def _export_export_bar_content(pct: int, aspect: str, done: bool = False) -> str:
+        if done:
+            return (
+                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
+                '<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">Export</span>'
+                '<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a">'
+                '<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
+                '<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
+                '</div>'
+            )
+        lbl = f'Exporting {aspect}' if aspect else 'Exporting'
+        return (
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
+            f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{lbl}</span>'
+            f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
+            f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;'
+            f'transition:width 0.4s ease"></div></div>'
+            f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
+            f'</div>'
+        )
 
     def _detail_export() -> None:
         ui.label('Choose output settings, then click Export → below.').style('color:#666;font-size:0.78rem;margin-bottom:0.5rem')
@@ -784,6 +880,14 @@ def session_page(session_id: str) -> None:
         _eout = ui.element('div').style('margin-top:0.5rem')
         _export_out_ref[0] = _eout
         _show_exports(session_id, _eout)
+        # Re-entering this step while export is running: restore current progress immediately
+        _etask = state.get_task(f'export_{session_id}')
+        if _etask and not _etask.done and not _etask.error:
+            _ebar.set_content(_export_export_bar_content(_export_pct_ref[0], _export_aspect_ref[0]))
+            _estatus.set_text(f'Exporting {_export_aspect_ref[0]}…')
+        elif _etask and _etask.done:
+            _ebar.set_content(_export_export_bar_content(100, _export_aspect_ref[0], done=True))
+            _estatus.set_text('Export complete.')
 
     def _detail_pick() -> None:
         if not mark_data:
@@ -818,13 +922,21 @@ def session_page(session_id: str) -> None:
                 '<div style="width:100%;height:56px;background:#111"></div>'
             )
             ts_label = f'{_tsfmt(in_s)}–{_tsfmt(out_s)}'
-            border_col = '#2a7a2a' if mid not in rejected_ids else '#7a2a2a'
+            accepted = mid not in rejected_ids
+            border_col = '#2a7a2a' if accepted else '#7a2a2a'
+            badge_col  = '#2a7a2a' if accepted else '#7a2a2a'
+            badge_icon = '✓' if accepted else '✗'
             _cards_parts.append(
                 f'<div id="card-{mid}" '
                 f'onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})" '
                 f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
-                f'cursor:pointer;border:2px solid {border_col};flex-shrink:0">'
+                f'cursor:pointer;border:2px solid {border_col};flex-shrink:0;position:relative">'
                 f'{img_part}'
+                f'<div id="card-badge-{mid}" style="position:absolute;top:3px;right:3px;'
+                f'width:16px;height:16px;border-radius:50%;background:{badge_col};'
+                f'display:flex;align-items:center;justify-content:center;'
+                f'font-size:0.5rem;color:#fff;font-weight:bold;pointer-events:none">'
+                f'{badge_icon}</div>'
                 f'<div style="padding:0.2rem 0.35rem">'
                 f'<div style="color:#777;font-size:0.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ts_label}</div>'
                 f'<div style="color:#5a5a5a;font-size:0.58rem">{score:.2f}</div>'
@@ -841,6 +953,11 @@ function _axedupToggle(mid, ok) {{
   window.axedup_decisions[mid] = ok;
   var card = document.getElementById("card-" + mid);
   if (card) card.style.borderColor = ok ? "#2a7a2a" : "#7a2a2a";
+  var badge = document.getElementById("card-badge-" + mid);
+  if (badge) {{
+    badge.style.background = ok ? "#2a7a2a" : "#7a2a2a";
+    badge.textContent = ok ? "✓" : "✗";
+  }}
   var bar = document.getElementById("mark-" + mid);
   if (bar) {{
     bar.style.background = ok ? "#2a7a2a" : "#7a2a2a";
@@ -903,6 +1020,10 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 state.start_task(f'{session_id}_highlights')
                 detect_peaks(session_id, on_event=_on_event, motion_method=method)
                 state.finish_task(f'{session_id}_highlights')
+                with db_session() as _db:
+                    _sess = _db.query(Session).filter(Session.id == session_id).first()
+                    if _sess:
+                        _sess.status = SessionStatus.READY
                 state.start_task(f'{session_id}_thumbnails')
                 extract_mark_thumbnails(session_id, on_event=_on_event)
                 state.finish_task(f'{session_id}_thumbnails')
@@ -940,12 +1061,11 @@ window.axedupCardClick = function(mid, cid, ins) {{
         key = f'assemble_{session_id}'
         t0  = time.time()
         state.start_task(key)
-        _c_done  = [0]
-        _c_total = [0]
+        _combine_done_ref[0] = False
 
         def _on_combine_progress(done: int, total: int) -> None:
-            _c_done[0]  = done
-            _c_total[0] = total
+            _c_done_ref[0]  = done
+            _c_total_ref[0] = total
 
         def _run():
             try:
@@ -961,8 +1081,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
             t = state.get_task(key)
             if not t: return
             elapsed = _fmt(time.time() - t0)
-            done  = _c_done[0]
-            total = _c_total[0]
+            done  = _c_done_ref[0]
+            total = _c_total_ref[0]
             if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'combining: {elapsed}')
             if t.error:
                 if _combine_err_ref[0]:    _combine_err_ref[0].set_text(t.error)
@@ -971,17 +1091,11 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 next_action['fn'] = _run_combine
                 _ct.active = False; return
             if t.done:
+                _combine_done_ref[0] = True
                 if _combine_status_ref[0]: _combine_status_ref[0].set_text(f'Done in {elapsed}.')
                 if hdr_time_ref[0]:        hdr_time_ref[0].set_text(f'combined: {elapsed}')
                 if _combine_bar_ref[0]:
-                    _combine_bar_ref[0].set_content(
-                        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                        '<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">Combining</span>'
-                        '<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a">'
-                        '<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
-                        '<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
-                        '</div>'
-                    )
+                    _combine_bar_ref[0].set_content(_combine_bar_content(0, 0, finished=True))
                 if nb: nb.set_enabled(True); nb.set_text('Continue to export →')
                 next_action['fn'] = lambda: _select_step('export')
                 _ct.active = False
@@ -989,28 +1103,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
             else:
                 if _combine_status_ref[0]: _combine_status_ref[0].set_text(f'Combining… {elapsed} elapsed')
                 if _combine_bar_ref[0]:
-                    if total:
-                        pct = int(done / total * 100)
-                        lbl = f'Combining {done}/{total}'
-                        _combine_bar_ref[0].set_content(
-                            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                            f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{lbl}</span>'
-                            f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-                            f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;'
-                            f'transition:width 0.3s ease"></div></div>'
-                            f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
-                            f'</div>'
-                        )
-                    else:
-                        _combine_bar_ref[0].set_content(
-                            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                            '<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">Combining</span>'
-                            '<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-                            '<div style="height:100%;width:40%;background:#f0a040;border-radius:4px;'
-                            'animation:tl-pulse 1.5s ease-in-out infinite"></div></div>'
-                            '<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">…</span>'
-                            '</div>'
-                        )
+                    _combine_bar_ref[0].set_content(_combine_bar_content(done, total))
         _ct = ui.timer(2.0, _cpoll)
 
     def _do_export_trigger() -> None:
@@ -1023,7 +1116,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
             return
         out_dir = _export_outdir_val[0].strip() or None
         nb = next_btn_ref[0]
-        if nb: nb.set_enabled(False); nb.set_text('Exporting…')
+        if nb: nb.set_enabled(False); nb.set_text('Exporting…'); nb.props('color=grey-7')
         if _export_err_ref[0]:    _export_err_ref[0].set_text('')
         if _export_status_ref[0]: _export_status_ref[0].set_text('Starting encoder…')
         key = f'export_{session_id}'
@@ -1047,27 +1140,6 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 state.finish_task(key, error=str(exc))
         threading.Thread(target=_run, daemon=True).start()
 
-        def _bar_content(pct: int, aspect: str, done: bool = False) -> str:
-            if done:
-                return (
-                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                    '<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">Export</span>'
-                    '<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a">'
-                    '<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
-                    '<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
-                    '</div>'
-                )
-            lbl = f'Exporting {aspect}' if aspect else 'Exporting'
-            return (
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{lbl}</span>'
-                f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-                f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;'
-                f'transition:width 0.4s ease"></div></div>'
-                f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
-                f'</div>'
-            )
-
         def _epoll():
             t = state.get_task(key)
             if not t: return
@@ -1083,14 +1155,18 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 _et.active = False; return
             if t.done:
                 if _export_status_ref[0]: _export_status_ref[0].set_text(f'Done in {elapsed}.')
-                if _export_bar_ref[0]:    _export_bar_ref[0].set_content(_bar_content(100, asp, done=True))
+                if _export_bar_ref[0]:    _export_bar_ref[0].set_content(_export_export_bar_content(100, asp, done=True))
                 if hdr_time_ref[0]:       hdr_time_ref[0].set_text(f'exported: {elapsed}')
                 if nb: nb.set_enabled(False); nb.set_text('Exported ✓')
+                if 'export'  in dot_refs: dot_refs['export'].set_content(_dot_html('done'))
+                if 'combine' in dot_refs: dot_refs['combine'].set_content(_dot_html('done'))
+                if 'pick'    in dot_refs: dot_refs['pick'].set_content(_dot_html('done'))
+                _elapsed_timer.active = False
                 _et.active = False
                 if _export_out_ref[0]: _show_exports(session_id, _export_out_ref[0])
             else:
                 if _export_status_ref[0]: _export_status_ref[0].set_text(f'Exporting {asp}… {elapsed} elapsed')
-                if _export_bar_ref[0]:    _export_bar_ref[0].set_content(_bar_content(pct, asp))
+                if _export_bar_ref[0]:    _export_bar_ref[0].set_content(_export_export_bar_content(pct, asp))
                 if hdr_time_ref[0]:       hdr_time_ref[0].set_text(f'exporting: {elapsed}')
         _et = ui.timer(1.0, _epoll)
 
@@ -1106,7 +1182,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
         if hdr_elapsed_ref[0]:
             hdr_elapsed_ref[0].set_text(text)
 
-    ui.timer(1.0, _elapsed_tick)
+    _elapsed_timer = ui.timer(1.0, _elapsed_tick)
 
     # ── Poll timer ──────────────────────────────────────────────────────────────
     _any_bg = proxy_running or scan_running or highlights_running
@@ -1127,7 +1203,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
             prog    = state.get_clip_progress(session_id)
             elapsed = _fmt(time.time() - task_start[0])
 
-            # Header timing
+            # Header timing + dot updates
             if _p_active:
                 est = _fmt(max(60, int(total_s)))
                 if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'working copy: {elapsed} / ~{est}')
@@ -1135,10 +1211,24 @@ window.axedupCardClick = function(mid, cid, ins) {{
             elif _s_active:
                 est = _fmt(max(30, int(total_s // 3)))
                 if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'scanning: {elapsed} / ~{est}')
-                if 'scan' in dot_refs: dot_refs['scan'].set_content(_dot_html('running'))
+                if 'scan'   in dot_refs: dot_refs['scan'].set_content(_dot_html('running'))
+                if 'method' in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
             elif _h_active:
                 if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'finding clips: {elapsed}')
                 if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('running'))
+                if 'scan'       in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
+                if 'method'     in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
+
+            # Keep completed-step dots green after their task finishes
+            if tp and tp.done:
+                if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('done'))
+            if ts and ts.done:
+                if 'scan'   in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
+                if 'method' in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
+            if th and th.done:
+                if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('done'))
+                if 'scan'       in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
+                if 'method'     in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
 
             # Reveal proxy player (swap still/placeholder → video) when first proxy is ready
             if not _proxy_shown[0] and clip_ids:

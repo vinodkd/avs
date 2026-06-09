@@ -10,11 +10,13 @@ def start(port: int = 8765) -> None:
     """Launch the AxEdUp NiceGUI desktop app."""
     config.ensure_dirs()
 
-    # Serve cached files so the video player and thumbnails work
-    app.add_static_files('/proxies', str(config.PROXY_DIR))
+    # Serve cached files so the video player and thumbnails work.
+    # Proxies and previews use add_media_files so range requests (HTTP 206) work
+    # and the embedded WebKit player can seek/stream without waiting for full download.
+    app.add_media_files('/proxies', str(config.PROXY_DIR))
     app.add_static_files('/thumbs', str(config.THUMB_DIR))
     app.add_static_files('/stills', str(config.STILL_DIR))
-    app.add_static_files('/previews', str(config.PREVIEW_DIR))
+    app.add_media_files('/previews', str(config.PREVIEW_DIR))
 
     # Import screens to register their @ui.page routes before ui.run()
     from axedup.ui.screens import cut, home, load, pick, save, scan, session  # noqa: F401

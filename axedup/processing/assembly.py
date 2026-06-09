@@ -145,8 +145,6 @@ def assemble_session(
         s.status = SessionStatus.ASSEMBLED
 
     _log(f"[green]Preview ready:[/green] {preview_path}")
-    _log(f"Opening with system video player …")
-    _open_player(preview_path)
 
     return preview_path
 

@@ -1,8 +1,17 @@
 # AxEdUp — Claude Code Instructions
 
+## Project Status: Active Development (post-prototype)
+
+The prototype phase is complete. The full pipeline runs end-to-end: ingest → proxy → scan → peaks → pick → combine → export. The NiceGUI desktop UI is the primary interface. The CLI exists but is behind the UI in capability and needs refactoring to match the current backend.
+
+Next priorities (in order):
+1. **Installable app** — PyInstaller + AppImage packaging for Linux, GitHub Releases distribution
+2. **CLI refactor** — bring `cli.py` in line with the current pipeline (on_event callbacks, session status, separate scan/peaks steps)
+3. **Signal enrichment** — audio spike detection, combined scoring (motion + telemetry + audio), boring-region flagging
+
 ## Project Overview
 
-AxEdUp is a desktop tool for editing and uploading action camera footage. It reads video files from an SD card or local folder, analyzes them using computer vision and telemetry data, guides the user through a 3-pass review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload.
+AxEdUp is a desktop tool for editing and uploading action camera footage. It reads video files from an SD card or local folder, analyzes them using computer vision and telemetry data, guides the user through a review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload.
 
 See `/brainstorm/` for full design history and decision rationale.
 See `/docs/design.md` for current architecture and build plan.
@@ -45,14 +54,15 @@ run.py              — convenience entry point
 
 - **Language:** Python 3.11+
 - **CLI:** `click` or `typer`
-- **UI (Phase 2):** NiceGUI — Python-native, browser-rendered, zero JavaScript
+- **UI:** NiceGUI — Python-native, browser-rendered, zero JavaScript (primary interface)
 - **Video processing:** ffmpeg-python + imageio-ffmpeg (bundles FFmpeg binary)
 - **Scene detection:** PySceneDetect
 - **Motion analysis:** OpenCV (cv2)
 - **Database:** SQLite via SQLAlchemy + Alembic
-- **LLM (Phase 2):** Ollama (separate install) + `ollama` Python client
+- **LLM (future):** Ollama (separate install) + `ollama` Python client
+- **Packaging:** PyInstaller + AppImage (Linux), GitHub Releases — in progress
 - **No GPU assumed** — all processing runs on CPU only
-- **No FastAPI, no React** — decided against for prototype; too heavy
+- **No FastAPI, no React** — decided against; too heavy
 
 ## Coding Conventions
 
@@ -68,7 +78,7 @@ run.py              — convenience entry point
 - FastAPI or any HTTP server
 - React or any JavaScript frontend
 - Camera WiFi / BLE integration
-- Direct platform upload (YouTube, Instagram, etc.)
+- Direct platform upload (YouTube, Instagram, etc.) — deferred to post-v1, not permanently excluded
 - 360 footage (AxEdUp360)
 - Mobile / Android / iOS builds
 - Cloud processing or hosted backend
