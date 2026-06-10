@@ -129,6 +129,15 @@ nav a:hover { color: var(--green); text-decoration: none; }
   margin-bottom: 1rem;
 }
 
+.byline {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 1.5rem;
+}
+
+.byline strong { color: var(--green); }
+
 .tagline {
   max-width: 480px;
   margin-bottom: 2rem;
