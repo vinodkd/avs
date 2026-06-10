@@ -85,14 +85,41 @@ nav a:hover { color: var(--green); text-decoration: none; }
 
 /* ── Hero ───────────────────────────────────────────────────────────────── */
 .hero {
-  text-align: center;
   padding: 5rem 0 4rem;
 }
 
+.hero-inner {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.hero-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-demo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-gif {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
 .hero-icon {
-  width: 96px;
-  height: 96px;
-  margin-bottom: 1.5rem;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 1.25rem;
 }
 
 .hero h1 {
@@ -105,8 +132,8 @@ nav a:hover { color: var(--green); text-decoration: none; }
 }
 
 .tagline {
-  max-width: 540px;
-  margin: 0 auto 2rem;
+  max-width: 480px;
+  margin-bottom: 2rem;
   color: var(--text-dim);
   font-size: 1.05rem;
 }
@@ -114,7 +141,6 @@ nav a:hover { color: var(--green); text-decoration: none; }
 .download-row {
   display: flex;
   gap: 0.75rem;
-  justify-content: center;
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
 }
@@ -122,6 +148,13 @@ nav a:hover { color: var(--green); text-decoration: none; }
 .platform-note {
   color: var(--text-dim);
   font-size: 0.85rem;
+}
+
+@media (max-width: 700px) {
+  .hero-inner { flex-direction: column; }
+  .hero { text-align: center; }
+  .tagline { max-width: 100%; }
+  .download-row { justify-content: center; }
 }
 
 /* ── Section shared ─────────────────────────────────────────────────────── */

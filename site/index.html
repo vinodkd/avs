@@ -25,22 +25,27 @@
 
   <!-- ── Hero ───────────────────────────────────────────────────────────── -->
   <section class="hero">
-    <div class="container">
-      <img src="icon.svg" alt="AxEdUp" class="hero-icon">
-      <h1>From SD card to shareable video<br>before you go to sleep.</h1>
-      <p class="tagline">
-        AxEdUp analyzes your action camera footage, finds the interesting moments,
-        and assembles a finished video — no editing skills required.
-      </p>
-      <div class="download-row">
-        <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">
-          ↓ Download
-        </a>
-        <a class="btn btn-secondary" href="https://github.com/vinodkd/axedup">
-          View on GitHub
-        </a>
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <img src="icon.svg" alt="AxEdUp" class="hero-icon">
+        <h1>From SD card to shareable video<br>before you go to sleep.</h1>
+        <p class="tagline">
+          AxEdUp analyzes your action camera footage, finds the interesting moments,
+          and assembles a finished video — no editing skills required.
+        </p>
+        <div class="download-row">
+          <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">
+            ↓ Download
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/vinodkd/axedup">
+            View on GitHub
+          </a>
+        </div>
+        <p class="platform-note">Linux · Windows · macOS</p>
       </div>
-      <p class="platform-note">Linux · Windows · macOS</p>
+      <div class="hero-demo">
+        <img src="axedup-screenshot.png" alt="AxEdUp app screenshot" class="hero-gif">
+      </div>
     </div>
   </section>
 
@@ -52,36 +57,50 @@
         <li>
           <span class="step-num">1</span>
           <div>
-            <strong>Load</strong>
+            <strong>Input videos</strong>
             <p>Point it at an SD card or folder. It finds your clips and extracts metadata.</p>
           </div>
         </li>
         <li>
           <span class="step-num">2</span>
           <div>
-            <strong>Analyze</strong>
-            <p>Generates proxy files, detects scenes, scores clips by motion and telemetry. Supports GoPro GPMF and DJI SRT data.</p>
+            <strong>Creating working copy</strong>
+            <p>Generates a low-resolution proxy for fast processing — originals are never touched.</p>
           </div>
         </li>
         <li>
           <span class="step-num">3</span>
           <div>
-            <strong>Review</strong>
-            <p>Browse thumbnails sorted by activity score. Mark clips to include or skip.</p>
+            <strong>Detecting scenes…</strong>
+            <p>Optical flow analysis finds scene changes and scores each segment by motion intensity.</p>
           </div>
         </li>
         <li>
           <span class="step-num">4</span>
           <div>
-            <strong>Assemble</strong>
-            <p>Combines selected clips, applies a color grade and music from a sport preset, renders a preview.</p>
+            <strong>Finding clips…</strong>
+            <p>Activity peaks are identified and ranked. GoPro GPMF and DJI SRT telemetry (speed, GPS) factor in when available.</p>
           </div>
         </li>
         <li>
           <span class="step-num">5</span>
           <div>
-            <strong>Export</strong>
-            <p>Final H.264 encode in one or more aspect ratios — 16:9, 9:16, 1:1.</p>
+            <strong>Select clips</strong>
+            <p>Browse thumbnails sorted by activity score. Mark which moments to keep or skip.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">6</span>
+          <div>
+            <strong>Combining clips…</strong>
+            <p>Selected clips are cut, color-graded, and scored with music from a sport preset. A preview renders automatically.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">7</span>
+          <div>
+            <strong>Exporting video…</strong>
+            <p>Final H.264 encode in 16:9, 9:16, or 1:1 — ready to share.</p>
           </div>
         </li>
       </ol>
