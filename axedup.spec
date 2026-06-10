@@ -1,17 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for AxEdUp desktop app.
+PyInstaller spec for AxEdUp desktop app.  Cross-platform: Linux, Windows, macOS.
 
 Build with:
     pyinstaller axedup.spec
 
-Output: dist/axedup/axedup  (onedir mode)
+Output (Linux/Windows): dist/axedup/axedup[.exe]  (onedir mode)
+Output (macOS):         dist/AxEdUp.app             (app bundle)
 """
-import sys
+import re as _re
+import sys as _sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH)
+
+# Read version from source so the macOS bundle info_plist stays in sync
+_VERSION = _re.search(
+    r'__version__\s*=\s*["\']([^"\']+)["\']',
+    (ROOT / 'axedup' / '__init__.py').read_text(),
+).group(1)
 
 # ── Data files ────────────────────────────────────────────────────────────────
 datas = []
@@ -19,23 +27,28 @@ datas = []
 # Alembic migration scripts (needed for first-run DB setup)
 datas += [(str(ROOT / 'axedup' / 'models' / 'migrations'), 'axedup/models/migrations')]
 
-# alembic.ini (read by main.py in dev mode; bundled for reference)
+# alembic.ini (bundled for reference)
 datas += [(str(ROOT / 'alembic.ini'), '.')]
 
 # Sport presets and LUTs
 datas += [(str(ROOT / 'axedup' / 'presets'), 'axedup/presets')]
 
-# imageio-ffmpeg bundled binary (collect_data_files handles path discovery)
+# imageio-ffmpeg bundled binary
 datas += collect_data_files('imageio_ffmpeg')
 
-# NiceGUI web assets (hook-nicegui.py in hooks-contrib does this too, but be explicit)
+# NiceGUI web assets
 datas += collect_data_files('nicegui')
 
 # ── Hidden imports ────────────────────────────────────────────────────────────
 hiddenimports = []
 
-# pywebview GTK backend (Linux)
-hiddenimports += ['webview.platforms.gtk']
+# pywebview backend — platform-specific
+if _sys.platform == 'win32':
+    hiddenimports += ['webview.platforms.edgechromium', 'webview.platforms.winforms']
+elif _sys.platform == 'darwin':
+    hiddenimports += ['webview.platforms.cocoa']
+else:
+    hiddenimports += ['webview.platforms.gtk']
 
 # NiceGUI dynamic module loading
 hiddenimports += collect_submodules('nicegui')
@@ -51,6 +64,19 @@ hiddenimports += ['cv2', 'scenedetect', 'scenedetect.backends', 'scenedetect.bac
 
 # pkg_resources / setuptools runtime
 hiddenimports += ['appdirs', 'pkg_resources', 'pkg_resources.extern']
+
+# ── Icon ──────────────────────────────────────────────────────────────────────
+if _sys.platform == 'win32':
+    _icon_path = ROOT / 'packaging' / 'axedup.ico'
+elif _sys.platform == 'darwin':
+    _icon_path = ROOT / 'packaging' / 'axedup.icns'
+else:
+    _icon_path = None
+
+_icon = str(_icon_path) if _icon_path and _icon_path.exists() else None
+
+# ── UPX — skip on Windows (AV false-positive risk) ───────────────────────────
+_upx = _sys.platform != 'win32'
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 a = Analysis(
@@ -80,12 +106,13 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,   # no terminal window; errors go to ~/.cache/axedup/axedup.log
+    upx=_upx,
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=_icon,
 )
 
 coll = COLLECT(
@@ -93,7 +120,24 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=_upx,
     upx_exclude=[],
     name='axedup',
 )
+
+# macOS: wrap COLLECT output in a .app bundle
+if _sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='AxEdUp.app',
+        icon=_icon,
+        bundle_identifier='net.javafam.axedup',
+        info_plist={
+            'CFBundleName': 'AxEdUp',
+            'CFBundleDisplayName': 'AxEdUp',
+            'CFBundleShortVersionString': _VERSION,
+            'CFBundleVersion': _VERSION,
+            'NSHighResolutionCapable': True,
+            'LSBackgroundOnly': False,
+        },
+    )

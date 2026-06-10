@@ -83,14 +83,27 @@ NiceGUI handles the server and browser communication internally — no FastAPI, 
 
 ### Packaging
 
+One PyInstaller spec (`axedup.spec`) handles all three platforms via `sys.platform` conditionals — pywebview backend, icon format, UPX flag, and macOS `BUNDLE` step are all gated at build time.
+
 ```
-axedup.spec               ← PyInstaller onedir spec
+axedup.spec                  ← cross-platform PyInstaller spec
 packaging/
-  build_appimage.sh       ← wraps PyInstaller output into AppImage
-  axedup.desktop          ← Linux .desktop entry
+  build_appimage.sh          ← Linux:   PyInstaller → AppImage
+  build_windows.ps1          ← Windows: PyInstaller → Inno Setup .exe wizard
+  build_macos.sh             ← macOS:   PyInstaller → create-dmg .dmg
+  axedup.iss                 ← Inno Setup installer definition (Windows)
+  axedup.desktop             ← Linux .desktop entry
 .github/workflows/
-  release.yml             ← builds AppImage on git tag push, uploads to GitHub Release
+  release.yml                ← three parallel jobs on tag push, each uploads to same GitHub Release
 ```
+
+Per-OS artifact:
+
+| OS | Artifact | Notes |
+|---|---|---|
+| Linux | `AxEdUp-<ver>-x86_64.AppImage` | Needs `libgtk-3-0 libwebkit2gtk-4.0-37` on minimal installs |
+| Windows | `AxEdUp-<ver>-Setup.exe` | Fully self-contained; WebView2 ships with Win10/11 |
+| macOS | `AxEdUp-<ver>.dmg` | Drag-to-Applications; first launch needs right-click → Open (Gatekeeper) |
 
 Startup sequence (packaged):
 1. `main.py` runs Alembic `upgrade head` (idempotent, safe to run every launch)
@@ -116,7 +129,7 @@ Startup sequence (packaged):
 | LLM (Phase 2) | Ollama + `ollama` Python client | Local, free, offline, good 3–4B models for structured tasks |
 | LLM model | Phi-3.5 Mini (3.8B) | ~2.2GB, fast on CPU, strong structured output |
 | Filesystem watch | watchdog | Cross-platform SD card / folder detection |
-| Packaging | PyInstaller + imageio-ffmpeg | Standalone executable, no Python install for end users |
+| Packaging | PyInstaller + Inno Setup (Win) / create-dmg (Mac) / AppImage (Linux) | Standalone installers for all three platforms; no Python install for end users |
 
 ---
 
