@@ -20,6 +20,7 @@
       </div>
       <nav>
         <a href="#how">How it works</a>
+        <a href="#roadmap">Roadmap</a>
         <a href="#install">Install</a>
         <a href="https://github.com/vinodkd/axedup">GitHub</a>
       </nav>
@@ -81,7 +82,7 @@
           <span class="step-num">4</span>
           <div>
             <strong>Finding clips…</strong>
-            <p>Activity peaks are identified and ranked. GoPro GPMF and DJI SRT telemetry (speed, GPS) factor in when available.</p>
+            <p>Activity peaks are identified and ranked by motion intensity.</p>
           </div>
         </li>
         <li>
@@ -116,15 +117,44 @@
       <h2>Supported cameras</h2>
       <table>
         <thead>
-          <tr><th>Camera</th><th>Video</th><th>Telemetry</th></tr>
+          <tr><th>Camera</th><th>Video</th></tr>
         </thead>
         <tbody>
-          <tr><td>GoPro Hero 5+</td><td>MP4</td><td>GPMF (speed, GPS, accelerometer)</td></tr>
-          <tr><td>DJI Osmo Action</td><td>MP4</td><td>SRT sidecar (speed, GPS, altitude)</td></tr>
-          <tr><td>Insta360</td><td>MP4 / MOV</td><td>Motion analysis only</td></tr>
-          <tr><td>Generic action cams</td><td>MP4 / MOV</td><td>Motion analysis only</td></tr>
+          <tr><td>GoPro Hero 5+</td><td>MP4</td></tr>
+          <tr><td>DJI Osmo Action</td><td>MP4</td></tr>
+          <tr><td>Insta360</td><td>MP4 / MOV</td></tr>
+          <tr><td>Generic action cams</td><td>MP4 / MOV</td></tr>
         </tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- ── Roadmap ───────────────────────────────────────────────────────── -->
+  <section id="roadmap" class="roadmap">
+    <div class="container">
+      <h2>Coming up</h2>
+      <div class="roadmap-grid">
+        <div class="roadmap-card">
+          <div class="roadmap-icon">📡</div>
+          <strong>Telemetry scoring</strong>
+          <p>GoPro GPMF and DJI SRT data (speed, GPS, altitude) folded into clip ranking alongside motion.</p>
+        </div>
+        <div class="roadmap-card">
+          <div class="roadmap-icon">🔊</div>
+          <strong>Audio spike detection</strong>
+          <p>Crowd noise, impact sounds, and audio peaks used as additional signals for highlight detection.</p>
+        </div>
+        <div class="roadmap-card">
+          <div class="roadmap-icon">💬</div>
+          <strong>Text brief</strong>
+          <p>Describe the edit you want in plain language — a local LLM uses it to guide clip selection.</p>
+        </div>
+        <div class="roadmap-card">
+          <div class="roadmap-icon">☁️</div>
+          <strong>Direct upload</strong>
+          <p>Publish to YouTube, Instagram, and other platforms without leaving the app.</p>
+        </div>
+      </div>
     </div>
   </section>
 
