@@ -131,7 +131,7 @@ if _sys.platform == 'darwin':
         coll,
         name='AxEdUp.app',
         icon=_icon,
-        bundle_identifier='net.javafam.axedup',
+        bundle_identifier='org.vinodkd.axedup',
         info_plist={
             'CFBundleName': 'AxEdUp',
             'CFBundleDisplayName': 'AxEdUp',
