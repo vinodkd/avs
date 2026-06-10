@@ -58,12 +58,27 @@ header {
   gap: 0.6rem;
 }
 
+.logo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
 .logo-text {
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--white);
   letter-spacing: -0.02em;
+  line-height: 1.1;
 }
+
+.logo-byline {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.logo-byline strong { color: var(--green); font-weight: 700; }
 
 nav { display: flex; gap: 1.5rem; }
 nav a { color: var(--text-dim); font-size: 0.9rem; }
@@ -114,12 +129,6 @@ nav a:hover { color: var(--green); text-decoration: none; }
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 
-.hero-icon {
-  width: 72px;
-  height: 72px;
-  margin-bottom: 1.25rem;
-}
-
 .hero h1 {
   font-size: 2.2rem;
   font-weight: 800;
@@ -128,15 +137,6 @@ nav a:hover { color: var(--green); text-decoration: none; }
   letter-spacing: -0.03em;
   margin-bottom: 1rem;
 }
-
-.byline {
-  color: var(--text-dim);
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
-  margin-bottom: 1.5rem;
-}
-
-.byline strong { color: var(--green); }
 
 .tagline {
   max-width: 480px;
