@@ -257,8 +257,6 @@ tbody tr:last-child td { border-bottom: none; }
   gap: 0.4rem;
 }
 
-.roadmap-icon { font-size: 1.4rem; }
-
 .roadmap-card strong {
   color: var(--white);
   font-size: 0.95rem;
@@ -268,6 +266,11 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--text-dim);
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+.roadmap-card--future {
+  opacity: 0.5;
+  border-style: dashed;
 }
 
 /* ── Install ─────────────────────────────────────────────────────────────── */
