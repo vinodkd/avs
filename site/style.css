@@ -59,25 +59,24 @@ header {
 }
 
 .logo-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
+  display: block;
 }
 
 .logo-text {
+  display: block;
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--white);
   letter-spacing: -0.02em;
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
 .logo-byline {
-  font-size: 0.58rem;
+  display: block;
+  font-size: 0.6rem;
   color: var(--text-dim);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-top: 0.1rem;
+  letter-spacing: 0.05em;
+  line-height: 1;
 }
 
 .logo-byline strong { color: var(--green); font-weight: 700; }
