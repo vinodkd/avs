@@ -43,7 +43,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Entire PyInstaller onedir output — recurse into _internal/ and any subdirs
-Source: "{#SourceDir}..\dist\axedup\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\axedup\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\AxEdUp";                       Filename: "{app}\axedup.exe"
