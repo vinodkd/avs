@@ -64,7 +64,7 @@ chmod +x "$APPDIR/AppRun"
 
 # ── 4. Build AppImage ─────────────────────────────────────────────────────────
 echo "==> Building AppImage..."
-ARCH="$ARCH" "$APPIMAGETOOL" "$APPDIR" "$APPIMAGE_OUT"
+ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGETOOL" "$APPDIR" "$APPIMAGE_OUT"
 
 echo ""
 echo "==> Done: ${APPIMAGE_OUT}"
