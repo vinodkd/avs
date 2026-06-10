@@ -1,0 +1,272 @@
+/* ── Reset & base ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f1a0f;
+  --bg2:       #141f14;
+  --bg3:       #1a2a1a;
+  --border:    #2a3a2a;
+  --green:     #5ab85a;
+  --green-dim: #3a7a3a;
+  --text:      #d8e8d8;
+  --text-dim:  #7a9a7a;
+  --white:     #ffffff;
+  --radius:    8px;
+  --font:      system-ui, -apple-system, sans-serif;
+  --mono:      ui-monospace, "Cascadia Code", "Fira Code", monospace;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+a { color: var(--green); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.logo-text {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--white);
+  letter-spacing: -0.02em;
+}
+
+nav { display: flex; gap: 1.5rem; }
+nav a { color: var(--text-dim); font-size: 0.9rem; }
+nav a:hover { color: var(--green); text-decoration: none; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-block;
+  padding: 0.6rem 1.4rem;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+.btn:hover { opacity: 0.85; text-decoration: none; }
+
+.btn-primary  { background: var(--green); color: #0a140a; }
+.btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+
+/* ── Hero ───────────────────────────────────────────────────────────────── */
+.hero {
+  text-align: center;
+  padding: 5rem 0 4rem;
+}
+
+.hero-icon {
+  width: 96px;
+  height: 96px;
+  margin-bottom: 1.5rem;
+}
+
+.hero h1 {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--white);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  margin-bottom: 1rem;
+}
+
+.tagline {
+  max-width: 540px;
+  margin: 0 auto 2rem;
+  color: var(--text-dim);
+  font-size: 1.05rem;
+}
+
+.download-row {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.platform-note {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+/* ── Section shared ─────────────────────────────────────────────────────── */
+section { padding: 4rem 0; }
+section + section { border-top: 1px solid var(--border); }
+
+h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--white);
+  margin-bottom: 2rem;
+  letter-spacing: -0.02em;
+}
+
+/* ── Steps ──────────────────────────────────────────────────────────────── */
+.steps { background: var(--bg2); }
+
+.step-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.step-list li {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.step-num {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  background: var(--green);
+  color: #0a140a;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-top: 0.1rem;
+}
+
+.step-list strong {
+  display: block;
+  color: var(--white);
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+.step-list p { color: var(--text-dim); font-size: 0.95rem; }
+
+.note {
+  margin-top: 2rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg3);
+  border-left: 3px solid var(--green);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* ── Cameras ─────────────────────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+thead tr { border-bottom: 1px solid var(--border); }
+th { text-align: left; padding: 0.5rem 0.75rem; color: var(--text-dim); font-weight: 600; font-size: 0.85rem; }
+td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+td:first-child { color: var(--white); }
+tbody tr:last-child td { border-bottom: none; }
+
+/* ── Install ─────────────────────────────────────────────────────────────── */
+.install { background: var(--bg2); }
+
+.os-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+}
+
+.os-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.os-card h3 {
+  color: var(--white);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.os-card p { color: var(--text-dim); font-size: 0.9rem; }
+
+.os-card pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+
+.os-card code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--green);
+}
+
+.os-card p code {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--green);
+  background: var(--bg);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+.prereq { font-size: 0.82rem !important; }
+
+.os-card .btn { align-self: flex-start; margin-top: auto; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 2rem 0;
+  text-align: center;
+}
+
+footer p { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 0.4rem; }
+footer a { color: var(--text-dim); }
+footer a:hover { color: var(--green); }
+.footer-note { font-size: 0.8rem !important; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .hero h1 { font-size: 1.6rem; }
+  nav { gap: 1rem; }
+}

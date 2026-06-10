@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AxEdUp — Action Camera Footage Editor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header>
+    <div class="container header-inner">
+      <div class="logo">
+        <img src="icon.svg" alt="AxEdUp icon" width="48" height="48">
+        <span class="logo-text">AxEdUp</span>
+      </div>
+      <nav>
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/vinodkd/axedup">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── Hero ───────────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="container">
+      <img src="icon.svg" alt="AxEdUp" class="hero-icon">
+      <h1>From SD card to shareable video<br>before you go to sleep.</h1>
+      <p class="tagline">
+        AxEdUp analyzes your action camera footage, finds the interesting moments,
+        and assembles a finished video — no editing skills required.
+      </p>
+      <div class="download-row">
+        <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">
+          ↓ Download
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/vinodkd/axedup">
+          View on GitHub
+        </a>
+      </div>
+      <p class="platform-note">Linux · Windows · macOS</p>
+    </div>
+  </section>
+
+  <!-- ── How it works ───────────────────────────────────────────────────── -->
+  <section id="how" class="steps">
+    <div class="container">
+      <h2>How it works</h2>
+      <ol class="step-list">
+        <li>
+          <span class="step-num">1</span>
+          <div>
+            <strong>Load</strong>
+            <p>Point it at an SD card or folder. It finds your clips and extracts metadata.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <div>
+            <strong>Analyze</strong>
+            <p>Generates proxy files, detects scenes, scores clips by motion and telemetry. Supports GoPro GPMF and DJI SRT data.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <div>
+            <strong>Review</strong>
+            <p>Browse thumbnails sorted by activity score. Mark clips to include or skip.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">4</span>
+          <div>
+            <strong>Assemble</strong>
+            <p>Combines selected clips, applies a color grade and music from a sport preset, renders a preview.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">5</span>
+          <div>
+            <strong>Export</strong>
+            <p>Final H.264 encode in one or more aspect ratios — 16:9, 9:16, 1:1.</p>
+          </div>
+        </li>
+      </ol>
+      <p class="note">No timeline scrubbing. No effects panels. The computer edits; you approve.</p>
+    </div>
+  </section>
+
+  <!-- ── Cameras ────────────────────────────────────────────────────────── -->
+  <section class="cameras">
+    <div class="container">
+      <h2>Supported cameras</h2>
+      <table>
+        <thead>
+          <tr><th>Camera</th><th>Video</th><th>Telemetry</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>GoPro Hero 5+</td><td>MP4</td><td>GPMF (speed, GPS, accelerometer)</td></tr>
+          <tr><td>DJI Osmo Action</td><td>MP4</td><td>SRT sidecar (speed, GPS, altitude)</td></tr>
+          <tr><td>Insta360</td><td>MP4 / MOV</td><td>Motion analysis only</td></tr>
+          <tr><td>Generic action cams</td><td>MP4 / MOV</td><td>Motion analysis only</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Install ────────────────────────────────────────────────────────── -->
+  <section id="install" class="install">
+    <div class="container">
+      <h2>Install</h2>
+      <div class="os-grid">
+
+        <div class="os-card">
+          <h3>Linux</h3>
+          <p>Download the AppImage, make it executable, run it.</p>
+          <pre><code>chmod +x AxEdUp-*.AppImage
+./AxEdUp-*.AppImage</code></pre>
+          <p class="prereq">On minimal installs: <code>sudo apt install libgtk-3-0 libwebkit2gtk-4.0-37</code></p>
+          <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">Download AppImage</a>
+        </div>
+
+        <div class="os-card">
+          <h3>Windows</h3>
+          <p>Run the installer. Standard Next → Next → Install wizard. No dependencies required.</p>
+          <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">Download Installer</a>
+        </div>
+
+        <div class="os-card">
+          <h3>macOS</h3>
+          <p>Open the DMG, drag AxEdUp to Applications. On first launch, right-click → Open to pass Gatekeeper (one time only).</p>
+          <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">Download DMG</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────────── -->
+  <footer>
+    <div class="container">
+      <p>
+        <a href="https://github.com/vinodkd/axedup">GitHub</a> ·
+        <a href="https://github.com/vinodkd/axedup/releases">Releases</a> ·
+        <a href="https://github.com/vinodkd/axedup/issues">Issues</a>
+      </p>
+      <p class="footer-note">No GPU required. All processing runs on CPU. Works offline.</p>
+    </div>
+  </footer>
+
+</body>
+</html>

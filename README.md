@@ -4,7 +4,7 @@ Turn a day's action camera footage into a shareable video without learning video
 
 AxEdUp reads files from an SD card or local folder, analyzes them with computer vision and telemetry data, walks you through a review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload — all from a desktop GUI.
 
-**Status:** Early beta. Core pipeline (ingest → analyze → pick → assemble → export) works end-to-end on Linux. Windows and macOS installers are in progress.
+**Status:** Early beta. Core pipeline (ingest → analyze → pick → assemble → export) works end-to-end. Installers available for Linux, Windows, and macOS.
 
 ---
 
