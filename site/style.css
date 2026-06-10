@@ -202,56 +202,74 @@ tbody tr:last-child td { border-bottom: none; }
 /* ── Install ─────────────────────────────────────────────────────────────── */
 .install { background: var(--bg2); }
 
-.os-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.25rem;
-}
-
-.os-card {
-  background: var(--bg3);
+.os-tabs-wrapper {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.5rem;
+  overflow: hidden;
+}
+
+.os-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.os-tab {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.os-tab:hover { color: var(--text); }
+
+.os-tab.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.os-panel {
+  background: var(--bg3);
+  padding: 1.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
-.os-card h3 {
-  color: var(--white);
-  font-size: 1.05rem;
-  font-weight: 700;
-}
+.os-panel p { color: var(--text-dim); font-size: 0.95rem; }
 
-.os-card p { color: var(--text-dim); font-size: 0.9rem; }
-
-.os-card pre {
+.os-panel pre {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 0.6rem 0.75rem;
+  padding: 0.75rem 1rem;
   overflow-x: auto;
 }
 
-.os-card code {
+.os-panel code {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--green);
+}
+
+.os-panel p code {
   font-family: var(--mono);
   font-size: 0.82rem;
   color: var(--green);
-}
-
-.os-card p code {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  color: var(--green);
   background: var(--bg);
-  padding: 0.1em 0.3em;
+  padding: 0.1em 0.35em;
   border-radius: 3px;
 }
 
-.prereq { font-size: 0.82rem !important; }
+.prereq { font-size: 0.85rem !important; }
 
-.os-card .btn { align-self: flex-start; margin-top: auto; }
+.os-panel .btn { align-self: flex-start; }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 footer {

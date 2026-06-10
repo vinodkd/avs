@@ -111,10 +111,15 @@
   <section id="install" class="install">
     <div class="container">
       <h2>Install</h2>
-      <div class="os-grid">
+      <div class="os-tabs-wrapper">
 
-        <div class="os-card">
-          <h3>Linux</h3>
+        <div class="os-tabs" role="tablist">
+          <button class="os-tab active" data-os="linux"   role="tab">Linux</button>
+          <button class="os-tab"        data-os="windows" role="tab">Windows</button>
+          <button class="os-tab"        data-os="macos"   role="tab">macOS</button>
+        </div>
+
+        <div class="os-panel" id="panel-linux">
           <p>Download the AppImage, make it executable, run it.</p>
           <pre><code>chmod +x AxEdUp-*.AppImage
 ./AxEdUp-*.AppImage</code></pre>
@@ -122,20 +127,28 @@
           <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">Download AppImage</a>
         </div>
 
-        <div class="os-card">
-          <h3>Windows</h3>
+        <div class="os-panel" id="panel-windows" hidden>
           <p>Run the installer. Standard Next → Next → Install wizard. No dependencies required.</p>
           <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">Download Installer</a>
         </div>
 
-        <div class="os-card">
-          <h3>macOS</h3>
+        <div class="os-panel" id="panel-macos" hidden>
           <p>Open the DMG, drag AxEdUp to Applications. On first launch, right-click → Open to pass Gatekeeper (one time only).</p>
           <a class="btn btn-primary" href="https://github.com/vinodkd/axedup/releases/latest">Download DMG</a>
         </div>
 
       </div>
     </div>
+    <script>
+      document.querySelectorAll('.os-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.os-tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.os-panel').forEach(p => p.hidden = true);
+          tab.classList.add('active');
+          document.getElementById('panel-' + tab.dataset.os).hidden = false;
+        });
+      });
+    </script>
   </section>
 
   <!-- ── Footer ─────────────────────────────────────────────────────────── -->
