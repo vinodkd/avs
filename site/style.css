@@ -203,35 +203,41 @@ tbody tr:last-child td { border-bottom: none; }
 .install { background: var(--bg2); }
 
 .os-tabs-wrapper {
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
 }
 
 .os-tabs {
   display: flex;
-  border-bottom: 1px solid var(--border);
   background: var(--bg);
+  border-bottom: 2px solid var(--green);
 }
 
 .os-tab {
   flex: 1;
-  padding: 0.75rem 1rem;
+  padding: 1.1rem 1.5rem;
   background: none;
   border: none;
-  border-bottom: 3px solid transparent;
+  border-right: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
-.os-tab:hover { color: var(--text); }
+.os-tab:last-child { border-right: none; }
+
+.os-tab:hover:not(.active) {
+  background: var(--bg3);
+  color: var(--text);
+}
 
 .os-tab.active {
-  color: var(--green);
-  border-bottom-color: var(--green);
+  background: var(--green);
+  color: #0a140a;
 }
 
 .os-panel {
