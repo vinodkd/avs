@@ -11,6 +11,14 @@ from axedup.ui.layout import sidebar
 @ui.page('/')
 def home_page() -> None:
     ui.dark_mode().enable()
+    # Block the webview's default file-drop behavior — without this, dropping a
+    # video onto the window navigates away from the app to fullscreen playback.
+    ui.add_head_html(
+        '<script>'
+        "window.addEventListener('dragover',function(e){e.preventDefault();});"
+        "window.addEventListener('drop',function(e){e.preventDefault();});"
+        '</script>'
+    )
 
     from axedup.updater import get_update_available
     new_ver = get_update_available()

@@ -1,5 +1,6 @@
 """Shared mutable state for background pipeline tasks and per-clip progress."""
 import threading
+import time
 from dataclasses import dataclass, field
 
 
@@ -7,6 +8,18 @@ from dataclasses import dataclass, field
 class TaskState:
     done: bool = False
     error: str | None = None
+    started_at: float | None = None
+    finished_at: float | None = None
+    pct: int | None = None        # 0-100 task-level progress, if reported
+    message: str | None = None    # phase label e.g. current export aspect
+
+    @property
+    def elapsed(self) -> float | None:
+        """Seconds since start; frozen at finish once done."""
+        if self.started_at is None:
+            return None
+        end = self.finished_at if self.finished_at is not None else time.time()
+        return end - self.started_at
 
 
 @dataclass
@@ -26,7 +39,7 @@ _lock = threading.Lock()
 
 def start_task(key: str) -> None:
     with _lock:
-        _tasks[key] = TaskState()
+        _tasks[key] = TaskState(started_at=time.time())
 
 
 def finish_task(key: str, error: str | None = None) -> None:
@@ -34,12 +47,24 @@ def finish_task(key: str, error: str | None = None) -> None:
         if key in _tasks:
             _tasks[key].done = True
             _tasks[key].error = error
+            _tasks[key].finished_at = time.time()
+
+
+def update_task_progress(key: str, pct: int | None = None, message: str | None = None) -> None:
+    with _lock:
+        if key in _tasks:
+            if pct is not None:
+                _tasks[key].pct = pct
+            if message is not None:
+                _tasks[key].message = message
 
 
 def get_task(key: str) -> TaskState | None:
     with _lock:
         t = _tasks.get(key)
-        return TaskState(done=t.done, error=t.error) if t else None
+        return TaskState(done=t.done, error=t.error,
+                         started_at=t.started_at, finished_at=t.finished_at,
+                         pct=t.pct, message=t.message) if t else None
 
 
 def update_clip_stage(

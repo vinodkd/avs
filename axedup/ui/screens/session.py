@@ -1,25 +1,32 @@
 """
-Session view — 3-pane layout.
+Session view — stage-table + player-area layout.
 Routes: /session/{session_id}  (existing session)
-        /session/new           (new session — file picker in Input step)
+        /session/new           (new session — EMPTY player mode)
 
-  ┌──────────────────────────┬─────────────────────┐  60 % viewport height
-  │  Video player  (60 %w)   │  Step list  (40 %w) │
-  │  + timeline strip        │  dot · title ·      │
-  │    when Pick selected    │  est→actual · count │
-  ├──────────────────────────┴─────────────────────┤  40 % viewport height
-  │  Detail pane — progress bars / controls        │
-  │                               [Next action →]  │
-  └────────────────────────────────────────────────┘
-
-Steps: Input → Proxy → Detect → Pick → Combine → Export
+  ┌─────────────────────────────────────────────────────────┐
+  │  sport · date · elapsed · est total           [delete]  │
+  ├──────────────────┬──────────────────────────────────────┤
+  │  Stage table     │  step options        [Next action →] │
+  │  (300px)         ├──────────────────────────────────────┤
+  │                  │  Video player area                   │
+  │  Select video    │  EMPTY | PREVIEW | REVIEW | OUTPUT   │
+  │  Trim video      │                                      │
+  │    Working copy… │                                      │
+  │    Detecting…    │                                      │
+  │    Finding…      │                                      │
+  │    Select clips  │                                      │
+  │    Combining…    ├──────────────────────────────────────┤
+  │  [Add text]      │  (REVIEW: timeline + thumbnail       │
+  │  [Add music]     │   cards below the player)            │
+  │  Export          │                                      │
+  └──────────────────┴──────────────────────────────────────┘
+  Hamburger / chevron toggle lives at the top of the left nav drawer.
 """
 import inspect
 import json
 import shutil
 import threading
 import time
-import uuid
 from pathlib import Path
 
 from nicegui import ui
@@ -35,47 +42,151 @@ from axedup.ui.layout import sidebar
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_STEPS = [
-    ('input',      'Input videos',           'Select source video files'),
-    ('proxy',      'Creating working copy',  'Create lofi copy for processing'),
-    ('method',     'Look for scenes by…',    'Choose how frames are sampled for analysis'),
-    ('scan',       'Detecting scenes…',      'Detect scenes using Optical flow algorithm'),
-    ('highlights', 'Finding clips…',         'Automatic — clips identified from detected scenes'),
-    ('pick',       'Select clips',           'Review and select clips to include'),
-    ('combine',    'Combining clips…',       'Combining selected clips into output video'),
-    ('export',     'Exporting video…',       'Create final video for sharing'),
-]
-
-_PROXY_STAGES = ['proxy']
-_SCAN_STAGES  = ['scenes', 'motion']
-
-_STAGE_LABEL = {
-    'proxy':  'Working copy',
-    'scenes': 'Scene cuts',
-    'motion': 'Optical flow',
-}
-_STAGE_BYLINE = {
-    'proxy':  '480p transcode — originals are only read once, here',
-    'scenes': 'Finds camera cuts and hard transitions',
-    'motion': 'Quick: ffmpeg extracts 1 frame/s, optical flow on those frames  ·  Full: OpenCV decodes every frame, sampled every 0.5s',
-}
-
 _GRADES   = ['punchy', 'cinematic', 'natural', 'warm', 'cool', 'vibrant']
 _SPORT_FB = ['mtb', 'surf', 'ski', 'cycling', 'moto', 'trail', 'skydive']
 
-_HDR_H = 46
-_TOP_H = f'calc((100vh - {_HDR_H}px) * 0.60)'
-_BOT_H = f'calc((100vh - {_HDR_H}px) * 0.40)'
-_TL_H  = f'calc({_TOP_H} * 0.20)'
+_PROXY_STAGES = ['proxy']
+_SCAN_STAGES  = ['scenes', 'motion']
+_STAGE_LABEL  = {'proxy': 'Working copy', 'scenes': 'Scene cuts', 'motion': 'Optical flow'}
+_STAGE_BYLINE = {
+    'proxy':  '480p transcode — originals are only read once',
+    'scenes': 'Finds camera cuts and hard transitions',
+    'motion': 'Quick: 1fps sample  ·  Full: every frame',
+}
 
-_ROW_BASE = (
-    'padding:0.55rem 0.75rem;align-items:flex-start;gap:0.5rem;'
-    'border-bottom:1px solid #141414;cursor:pointer;'
-    'flex-shrink:0;flex-wrap:nowrap;border-left:3px solid transparent'
-)
+_HDR_H    = 46
+_TABLE_W  = 300
 
-# Method choices for new sessions (set before navigate, read on page load)
+_CSS = """
+@keyframes tl-pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+.tl-run{animation:tl-pulse 1s ease-in-out infinite}
+.q-btn.disabled,.q-btn[disabled]{opacity:0.35!important;cursor:not-allowed!important}
+
+/* ── Stage table ────────────────────────────────────────────────────────── */
+.ax2-table{
+  width:300px;min-width:300px;height:100%;background:#0d0d0d;
+  border-right:1px solid #222;display:flex;flex-direction:column;
+  flex-shrink:0;transition:width 0.2s ease,min-width 0.2s ease;overflow:hidden
+}
+.ax2-table.ax2-review{width:190px;min-width:190px}
+
+/* Column header */
+.ax2-col-hdr{
+  display:grid;grid-template-columns:1fr 44px 52px 40px;
+  padding:0.22rem 0.7rem 0.22rem 0.9rem;background:#0a0a0a;
+  border-bottom:1px solid #1e1e1e;flex-shrink:0;gap:0.25rem
+}
+.ax2-col-hdr span{
+  font-size:0.58rem;text-transform:uppercase;letter-spacing:0.08em;color:#333;text-align:right
+}
+.ax2-col-hdr span:first-child{text-align:left}
+
+/* Section header rows (Select video, Trim video, Export) */
+.ax2-section{
+  padding:0.5rem 0.7rem;background:#151515;border-bottom:1px solid #1e1e1e;
+  font-size:0.82rem;font-weight:700;color:#ccc;letter-spacing:0.01em;
+  display:flex;align-items:center;gap:0.45rem;flex-shrink:0;
+  white-space:nowrap;overflow:hidden
+}
+.ax2-section.active{color:#fff;border-left:3px solid #ff8c00;padding-left:calc(0.7rem - 3px)}
+.ax2-section.done{color:#3aaa3a}
+.ax2-section.future{color:#333;font-style:italic}
+
+/* Sub-rows (Working copy…, Detecting scenes…, etc.) */
+.ax2-sub{
+  display:grid;grid-template-columns:12px 1fr 44px 52px 40px;
+  align-items:center;gap:0.3rem;
+  padding:0.38rem 0.7rem 0.38rem 1.5rem;
+  border-bottom:1px solid #181818;
+  font-size:0.79rem;color:#aaa;flex-shrink:0;
+  transition:background 0.1s
+}
+.ax2-sub:not(.pending){cursor:pointer}
+.ax2-sub:hover:not(.pending){background:#181818}
+.ax2-sub.active{background:#1a1a1a;color:#fff;border-left:3px solid #ff8c00;padding-left:calc(1.5rem - 3px)}
+.ax2-sub.done{color:#4a8a4a}
+.ax2-sub.running{color:#e09030}
+.ax2-sub.pending{color:#3a3a3a}
+
+.ax2-sub-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ax2-sub-est{text-align:right;font-size:0.68rem;color:#555;overflow:hidden;white-space:nowrap}
+.ax2-sub-act{text-align:right;font-size:0.68rem;color:#6a8a9a;overflow:hidden;white-space:nowrap}
+.ax2-sub-count{text-align:right;font-size:0.68rem;color:#888;overflow:hidden;white-space:nowrap}
+.ax2-sub.active .ax2-sub-est{color:#888}
+.ax2-sub.active .ax2-sub-count{color:#ccc}
+.ax2-sub.done .ax2-sub-est{color:#3a6a3a}
+.ax2-sub.done .ax2-sub-act,.ax2-sub.done .ax2-sub-count{color:#3a6a3a}
+
+/* Section est/act/count labels */
+.ax2-sec-est{width:44px;text-align:right;font-size:0.68rem;color:#555;flex-shrink:0}
+.ax2-sec-act{width:52px;text-align:right;font-size:0.68rem;color:#6a8a9a;flex-shrink:0}
+.ax2-sec-count{width:40px;text-align:right;font-size:0.68rem;color:#888;flex-shrink:0}
+
+/* Hide est/act (keep counts) when table is compressed (REVIEW mode) */
+.ax2-table.ax2-review .ax2-sub-est,
+.ax2-table.ax2-review .ax2-sub-act,
+.ax2-table.ax2-review .ax2-sec-est,
+.ax2-table.ax2-review .ax2-sec-act{display:none}
+.ax2-table.ax2-review .ax2-sub{
+  grid-template-columns:12px 1fr 40px;padding-right:0.4rem
+}
+.ax2-table.ax2-review .ax2-col-hdr{display:none}
+
+/* ── Player column ──────────────────────────────────────────────────────── */
+.ax2-player-col{
+  flex:1;min-width:0;height:100%;display:flex;flex-direction:column;overflow:hidden
+}
+.ax2-player-frame{
+  flex:3;min-height:0;display:flex;flex-direction:column;
+  border:1px solid #262626;border-radius:4px;margin:0.45rem;overflow:hidden
+}
+.ax2-player-tag{
+  height:22px;flex-shrink:0;background:#0d0d0d;border-bottom:1px solid #1e1e1e;
+  display:flex;align-items:center;padding:0 0.6rem;
+  font-size:0.64rem;letter-spacing:0.07em;text-transform:uppercase;color:#777
+}
+.ax2-player-main{
+  flex:1;min-height:0;position:relative;overflow:hidden;background:#000
+}
+.ax2-player-main video,.ax2-player-main img{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  object-fit:contain;display:block;background:#000
+}
+.ax2-review-panel{
+  display:none;flex-direction:column;flex:2;min-height:0;
+  border-top:1px solid #1a1a1a;background:#0a0a0a;overflow:hidden
+}
+.ax2-review-panel.visible{display:flex}
+.ax2-action-bar{
+  min-height:48px;flex-shrink:0;border-bottom:1px solid #222;background:#141414;
+  padding:0.2rem 0.9rem;display:flex;align-items:center;gap:0.6rem
+}
+
+/* ── Drop zone (EMPTY mode) ─────────────────────────────────────────────── */
+.ax2-dz{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:0.75rem;background:#050505
+}
+.ax2-dz-ring{
+  width:80px;height:80px;border-radius:50%;border:2px dashed #2a2a2a;
+  display:flex;align-items:center;justify-content:center;color:#3a3a3a;font-size:2rem
+}
+.ax2-dz-label{color:#555;font-size:0.88rem;letter-spacing:0.03em}
+.ax2-dz-sub{color:#333;font-size:0.72rem}
+"""
+
 _pending_methods: dict[str, str] = {}
+
+# filepath → served URL, so repeat page loads don't register duplicate routes
+_media_urls: dict[str, str] = {}
+
+
+def _media_url(path: Path) -> str:
+    key = str(path)
+    if key not in _media_urls:
+        from nicegui import app as ng_app
+        _media_urls[key] = ng_app.add_media_file(local_file=path)
+    return _media_urls[key]
 
 
 # ── Formatting helpers ─────────────────────────────────────────────────────────
@@ -92,66 +203,57 @@ def _tsfmt(ts: float) -> str:
 
 def _dot_html(st: str) -> str:
     if st == 'done':
-        c, cls = '#5a9a5a', ''
+        c, cls = '#3aaa3a', ''
     elif st == 'running':
         c, cls = '#f0a040', 'class="tl-run"'
     elif st == 'active':
-        c, cls = '#5a8aaa', ''
+        c, cls = '#6a9aaa', ''
     else:
-        return ('<span style="width:11px;height:11px;border-radius:50%;'
-                'background:#1e1e1e;border:1px solid #2e2e2e;display:inline-block;flex-shrink:0"></span>')
-    return (f'<span {cls} style="width:11px;height:11px;border-radius:50%;'
-            f'background:{c};display:inline-block;flex-shrink:0"></span>')
-
-
-def _row_style(selected: bool) -> str:
-    bg  = '#1c1c1c' if selected else '#111'
-    bdr = '#5a9a5a' if selected else 'transparent'
-    return f'{_ROW_BASE};background:{bg};border-left-color:{bdr}'
+        return ('<span style="width:9px;height:9px;border-radius:50%;'
+                'background:#1c1c1c;border:1px solid #2a2a2a;display:inline-block"></span>')
+    return (f'<span {cls} style="width:9px;height:9px;border-radius:50%;'
+            f'background:{c};display:inline-block"></span>')
 
 
 def _bar_html(s: StageState, label: str, stage: str, method: str = 'proxy') -> str:
-    """One progress-bar row: [label 148px] [bar flex] [pct 24px]"""
-
+    """PREVIEW overlay progress bar — [label 148px] [bar flex] [pct 24px]"""
     if s.status in ('done', 'skipped'):
         return (
             f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-            f'<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
+            f'<span style="color:#3aaa3a;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
             f'<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a;overflow:hidden">'
-            f'<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
-            f'<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
+            f'<div style="height:100%;width:100%;background:#3aaa3a;border-radius:4px"></div></div>'
+            f'<span style="color:#2a7a2a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
             f'</div>'
         )
-
     if s.status == 'running':
         pct = (s.pct if s.pct is not None
                else (int(s.completed / s.total * 100) if s.completed and s.total else 0))
         sub = ''
         if stage == 'motion' and s.completed and s.total:
-            phase = s.message or 'Comparing'   # "Extracting" during ffmpeg phase, "Comparing" during flow
+            phase = s.message or 'Comparing'
             mode  = '1fps sample' if method == 'jpg' else 'all frames'
-            sub   = f'{phase} · {mode} · {s.completed:,}/{s.total:,} frames'
+            sub   = f'{phase} · {mode} · {s.completed:,}/{s.total:,}'
         elif stage == 'proxy' and s.pct is not None:
-            sub = f'Transcoding {s.pct}% complete'
+            sub = f'Transcoding {s.pct}%'
+        elif s.message:
+            sub = s.message
         return (
             f'<div style="margin-bottom:9px">'
             f'<div style="display:flex;align-items:center;gap:10px">'
             f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
             f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-            f'<div style="height:100%;width:{pct}%;background:#f0a040;'
-            f'border-radius:4px;transition:width 0.3s ease"></div></div>'
+            f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;transition:width 0.3s ease"></div></div>'
             f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
             f'</div>'
             + (f'<div style="padding-left:158px;margin-top:2px">'
                f'<span style="color:#8a7a5a;font-size:0.68rem">{sub}</span></div>' if sub else '')
-            + f'</div>'
+            + '</div>'
         )
-
     return (
         f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
         f'<span style="color:#484848;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
-        f'<div style="flex:1;height:7px;border-radius:4px;background:#161616;overflow:hidden">'
-        f'<div style="height:100%;width:0%;background:#1e1e1e;border-radius:4px"></div></div>'
+        f'<div style="flex:1;height:7px;border-radius:4px;background:#161616;overflow:hidden"></div>'
         f'<span style="color:#3e3e3e;font-size:0.7rem;width:24px;text-align:right">—</span>'
         f'</div>'
     )
@@ -161,13 +263,11 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
     marks_by_clip: dict = {}
     for mid, cid, in_s, out_s, *_ in mark_data:
         marks_by_clip.setdefault(cid, []).append((mid, in_s, out_s))
-
     total_dur = sum(d for _, _, d in clip_info if d)
     if   total_dur <= 60:   tick_iv = 10
     elif total_dur <= 300:  tick_iv = 30
     elif total_dur <= 1800: tick_iv = 60
     else:                   tick_iv = 300
-
     _BG = ['#1a1a1a', '#171717', '#1c1c1c', '#181818']
     out = [
         '<div style="display:flex;width:100%;height:100%;gap:2px;background:#0a0a0a;'
@@ -186,7 +286,6 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
             f'<span style="font-size:0.47rem;color:#999;white-space:nowrap;overflow:hidden;'
             f'text-overflow:ellipsis">{label} · {_fmt(int(dur_s))}</span></div>'
         )
-        # Timestamp ticks — align to global time grid so ticks line up across clips
         first_offset = tick_iv - (clip_start % tick_iv)
         if first_offset >= tick_iv: first_offset = 0.0
         t = first_offset if first_offset > 0 else tick_iv
@@ -201,7 +300,6 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
                 f'{tick_label}</span></div>'
             )
             t += tick_iv
-        # Mark bars
         for mid, in_s, out_s in marks_by_clip.get(cid, []):
             ip = in_s / dur_s * 100
             wp = (out_s - in_s) / dur_s * 100
@@ -209,12 +307,12 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
             out.append(
                 f'<div id="mark-{mid}" data-mid="{mid}" data-cid="{cid}" data-ins="{in_s}"'
                 f' style="position:absolute;top:15px;left:{ip:.2f}%;'
-                f'width:max({max(wp, 2):.2f}%,40px);bottom:2px;background:#2a7a2a;'
+                f'width:max({max(wp,2):.2f}%,40px);bottom:2px;background:#2a7a2a;'
                 f'border-radius:2px;cursor:pointer;transition:background 0.15s;'
                 f'display:flex;align-items:center;justify-content:center;overflow:hidden"'
                 f' onclick="axedupMarkClick(this)" title="{tip}">'
                 f'<span class="mark-icon" style="font-size:0.45rem;color:rgba(255,255,255,0.85);'
-                f'pointer-events:none;line-height:1">✓</span></div>'
+                f'pointer-events:none">✓</span></div>'
             )
         out.append('</div>')
         clip_start += dur_s
@@ -233,7 +331,7 @@ def _show_exports(session_id: str, container) -> None:
         for exp in exports:
             with ui.card().style('background:#1a1a1a;padding:0.4rem 0.6rem;margin-bottom:0.25rem'):
                 with ui.row().style('align-items:center;gap:0.75rem'):
-                    ui.badge(exp.aspect).style('background:#1a2a1a;color:#5a9a5a;font-size:0.7rem')
+                    ui.badge(exp.aspect).style('background:#1a2a1a;color:#3aaa3a;font-size:0.7rem')
                     ui.label(exp.filepath).style(
                         'color:#888;font-size:0.75rem;font-family:monospace;flex:1;word-break:break-all'
                     )
@@ -276,88 +374,99 @@ def _do_delete(session_id: str) -> None:
 @ui.page('/session/{session_id}')
 def session_page(session_id: str) -> None:
     ui.dark_mode().enable()
+    ui.add_head_html(f'<style>{_CSS}</style>')
+    # Block the webview's default file-drop behavior — without this, dropping a
+    # video onto the window navigates away from the app to fullscreen playback.
     ui.add_head_html(
-        '<style>'
-        '@keyframes tl-pulse{0%,100%{opacity:1}50%{opacity:0.35}}'
-        '.tl-run{animation:tl-pulse 1s ease-in-out infinite}'
-        '.q-btn.disabled,.q-btn[disabled]{opacity:0.35!important;cursor:not-allowed!important}'
-        '</style>'
+        '<script>'
+        "window.addEventListener('dragover',function(e){e.preventDefault();});"
+        "window.addEventListener('drop',function(e){e.preventDefault();});"
+        '</script>'
     )
 
-    if session_id == 'new':
-        _new_session_ui()
-        return
+    is_new = (session_id == 'new')
 
     # ── DB load ────────────────────────────────────────────────────────────────
-    with db_session() as db:
-        session = db.query(Session).filter(Session.id == session_id).first()
-        if not session:
-            ui.label('Session not found.').style('color:#e57373;padding:2rem')
-            return
-        status   = session.status
-        sport    = session.sport or 'unknown'
-        src      = session.source_path or ''
-        created  = session.created_at
-        clips    = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
-        clip_ids = [c.id for c in clips]
-        clip_info = [(c.id, c.filename, c.duration_s) for c in clips]
-        total_s  = sum(c.duration_s or 0 for c in clips)
-        marks_all = (
-            db.query(Mark)
-            .join(Clip, Mark.clip_id == Clip.id)
-            .filter(Mark.clip_id.in_(clip_ids))
-            .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED, MarkStatus.REJECTED]))
-            .order_by(Clip.clip_order, Mark.in_s)
-            .all()
-        ) if clip_ids else []
-        mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
-        rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
-        sports = [p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB
+    if is_new:
+        status = sport = src = created = None
+        clip_ids = clip_info = mark_data = []
+        total_s = 0.0
+        rejected_ids: set = set()
+        all_proxies_done = proxy_running = scan_running = highlights_running = False
+        has_motion_data = post_analysis = False
+        preview_path = Path('/nonexistent/_preview.mp4')
+        still_path   = Path('/nonexistent/_still.jpg')
+        detect_method_ref = ['proxy']
+        with db_session() as db:
+            sports = [p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB
+    else:
+        with db_session() as db:
+            session = db.query(Session).filter(Session.id == session_id).first()
+            if not session:
+                ui.label('Session not found.').style('color:#e57373;padding:2rem')
+                return
+            status   = session.status
+            sport    = session.sport or 'unknown'
+            src      = session.source_path or ''
+            created  = session.created_at
+            clips    = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
+            clip_ids = [c.id for c in clips]
+            clip_info = [(c.id, c.filename, c.duration_s) for c in clips]
+            total_s   = sum(c.duration_s or 0 for c in clips)
+            marks_all = (
+                db.query(Mark)
+                .join(Clip, Mark.clip_id == Clip.id)
+                .filter(Mark.clip_id.in_(clip_ids))
+                .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED, MarkStatus.REJECTED]))
+                .order_by(Clip.clip_order, Mark.in_s)
+                .all()
+            ) if clip_ids else []
+            mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
+            rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
+            sports = [p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB
 
-    # ── Task / progress state ──────────────────────────────────────────────────
-    proxy_task      = state.get_task(f'{session_id}_proxy')
-    scan_task       = state.get_task(f'{session_id}_scan')
-    highlights_task = state.get_task(f'{session_id}_highlights')
-    legacy_task     = state.get_task(session_id)
+        proxy_task      = state.get_task(f'{session_id}_proxy')
+        scan_task       = state.get_task(f'{session_id}_scan')
+        highlights_task = state.get_task(f'{session_id}_highlights')
+        legacy_task     = state.get_task(session_id)
 
-    all_proxies_done = bool(clip_ids) and all(
-        (config.PROXY_DIR / f'{cid}.mp4').exists() for cid in clip_ids
-    )
-    proxy_running = (
-        (proxy_task is not None and not proxy_task.done) or
-        (legacy_task is not None and not legacy_task.done and not all_proxies_done)
-    )
-    with db_session() as db:
-        has_motion_data = bool(clip_ids) and (
-            db.query(TelemetryPoint)
-            .filter(TelemetryPoint.clip_id.in_(clip_ids))
-            .filter(
-                (TelemetryPoint.motion_intensity.isnot(None)) |
-                (TelemetryPoint.motion_intensity_quick.isnot(None))
-            ).count() > 0
+        all_proxies_done = bool(clip_ids) and all(
+            (config.PROXY_DIR / f'{cid}.mp4').exists() for cid in clip_ids
         )
-    scan_running       = scan_task is not None and not scan_task.done
-    highlights_running = highlights_task is not None and not highlights_task.done
-    post_analysis = status not in (
-        SessionStatus.IMPORTING, SessionStatus.INGESTED, SessionStatus.ANALYZING
-    )
+        proxy_running = (
+            (proxy_task is not None and not proxy_task.done) or
+            (legacy_task is not None and not legacy_task.done and not all_proxies_done)
+        )
+        with db_session() as db:
+            has_motion_data = bool(clip_ids) and (
+                db.query(TelemetryPoint)
+                .filter(TelemetryPoint.clip_id.in_(clip_ids))
+                .filter(
+                    (TelemetryPoint.motion_intensity.isnot(None)) |
+                    (TelemetryPoint.motion_intensity_quick.isnot(None))
+                ).count() > 0
+            )
+        scan_running       = scan_task is not None and not scan_task.done
+        highlights_running = highlights_task is not None and not highlights_task.done
+        post_analysis = status not in (
+            SessionStatus.IMPORTING, SessionStatus.INGESTED, SessionStatus.ANALYZING
+        )
 
-    preview_path = config.PREVIEW_DIR / f'{session_id}_preview.mp4'
-    still_path   = config.STILL_DIR / f'{session_id}_still.jpg'
-    detect_method_ref = [_pending_methods.get(session_id, 'proxy')]
+        preview_path = config.PREVIEW_DIR / f'{session_id}_preview.mp4'
+        still_path   = config.STILL_DIR / f'{session_id}_still.jpg'
+        detect_method_ref = [_pending_methods.get(session_id, 'proxy')]
 
-    # ── Step status helper ─────────────────────────────────────────────────────
-    def _step_st(sid: str) -> str:
+    # ── Stage status ───────────────────────────────────────────────────────────
+
+    def _stage_st(sid: str) -> str:
+        if is_new:
+            return 'active' if sid == 'input' else 'pending'
         if sid == 'input':
             return 'done' if clip_ids else 'active'
         if sid == 'proxy':
             if all_proxies_done:  return 'done'
             if proxy_running:     return 'running'
             return 'active' if clip_ids else 'pending'
-        if sid == 'method':
-            if has_motion_data or scan_running or highlights_running or post_analysis:
-                return 'done'
-            return 'active' if all_proxies_done else 'pending'
         if sid == 'scan':
             if has_motion_data:   return 'done'
             if scan_running:      return 'running'
@@ -370,72 +479,146 @@ def session_page(session_id: str) -> None:
             if status in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED): return 'done'
             return 'active' if post_analysis else 'pending'
         if sid == 'combine':
+            t = state.get_task(f'assemble_{session_id}')
+            if t and not t.done: return 'running'
             if status in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED): return 'done'
             if preview_path.exists(): return 'done'
             return 'pending'
         if sid == 'export':
             if status == SessionStatus.EXPORTED: return 'done'
+            t = state.get_task(f'export_{session_id}')
+            if t and not t.done: return 'running'
             return 'active' if preview_path.exists() else 'pending'
         return 'pending'
 
-    # ── Initial step ───────────────────────────────────────────────────────────
-    if not clip_ids:
-        initial = 'input'
+    if is_new:
+        initial_stage = 'input'
+    elif not clip_ids:
+        initial_stage = 'input'
     elif proxy_running or not all_proxies_done:
-        initial = 'proxy'
+        initial_stage = 'proxy'
     elif scan_running:
-        initial = 'scan'
+        initial_stage = 'scan'
     elif highlights_running:
-        initial = 'highlights'
+        initial_stage = 'highlights'
     elif post_analysis:
-        if status == SessionStatus.ASSEMBLED:
-            initial = 'combine'
-        elif status == SessionStatus.EXPORTED:
-            initial = 'export'
+        if status == SessionStatus.EXPORTED:
+            initial_stage = 'export'
+        elif status == SessionStatus.ASSEMBLED or preview_path.exists():
+            initial_stage = 'combine'
         else:
-            initial = 'pick'
+            initial_stage = 'pick'
     elif has_motion_data:
-        initial = 'highlights'
+        initial_stage = 'highlights'
     else:
-        initial = 'method'
+        initial_stage = 'scan'
+
+    # A combine/export started on a previous page view may still be running —
+    # land on that stage so its watcher can re-attach.
+    if not is_new:
+        _t_asm0 = state.get_task(f'assemble_{session_id}')
+        _t_exp0 = state.get_task(f'export_{session_id}')
+        if _t_exp0 and not _t_exp0.done:
+            initial_stage = 'export'
+        elif _t_asm0 and not _t_asm0.done:
+            initial_stage = 'combine'
+
+    # Latest exported file, served via a dedicated media route (exports may live
+    # outside the static dirs; users can choose any output folder)
+    export_url = None
+    if not is_new and status == SessionStatus.EXPORTED:
+        with db_session() as db:
+            _last_exp = (db.query(Export).filter(Export.session_id == session_id)
+                         .order_by(Export.exported_at.desc()).first())
+            _last_exp_path = Path(_last_exp.filepath) if _last_exp else None
+        if _last_exp_path and _last_exp_path.exists():
+            export_url = _media_url(_last_exp_path)
 
     def _player_src() -> str:
-        if preview_path.exists():
+        if export_url:
+            return export_url
+        if not is_new and preview_path.exists():
             return f'/previews/{session_id}_preview.mp4'
         p = next((cid for cid in clip_ids if (config.PROXY_DIR / f'{cid}.mp4').exists()), None)
         return f'/proxies/{p}.mp4' if p else ''
 
-    init_src = _player_src()
+    # While proxies are still building, a half-written proxy file already exists
+    # on disk — don't mount it; show the still and let _poll swap the video in.
+    init_src = '' if (is_new or proxy_running) else _player_src()
+
+    if is_new or not init_src:
+        init_tag = 'Static preview of original' if (not is_new and still_path.exists()) else 'No video yet'
+    elif export_url and init_src == export_url:
+        init_tag = 'Exported'
+    elif init_src.startswith('/previews/'):
+        init_tag = 'Selected clips, combined'
+    else:
+        init_tag = 'Working copy'
 
     # ── Mutable refs ──────────────────────────────────────────────────────────
-    selected        = [initial]
-    detail_ref      = [None]
-    tl_col_ref      = [None]
-    tl_html_ref     = [None]
-    next_btn_ref    = [None]
-    next_action     = {'fn': None}
-    hdr_time_ref    = [None]
-    hdr_elapsed_ref = [None]
-    dot_refs:   dict[str, ui.html]  = {}
-    time_refs:  dict[str, ui.label] = {}
-    count_refs: dict[str, ui.label] = {}
-    row_refs:   dict[str, ui.row]   = {}
-    bar_refs:   dict[str, dict[str, ui.html]] = {}
-    task_start    = [time.time()]
-    _scan_started = [False]
-    _timer_ref    = [None]
+    review_mode      = [False]
+    combining_lock   = [False]   # True while assemble is running → blocks re-entering review
+    hdr_elapsed_ref  = [None]
+    hdr_time_ref     = [None]
+    next_btn_ref     = [None]
+    next_action      = {'fn': None}
+    menu_btn_ref     = [None]
+    dot_refs:        dict[str, object] = {}
+    act_refs:        dict[str, object] = {}   # stage_id → "actual time" cell
+    count_refs:      dict[str, object] = {}
+    player_tag_ref   = [None]
+    strip_ref        = [None]
+    combine_bar_ref  = [None]
+    row_refs:        dict[str, object] = {}   # stage_id → ui.element for class updates
+    bar_refs:        dict[str, dict]   = {}
+    tl_html_ref      = [None]
+    cards_html_ref   = [None]
+    review_panel_ref = [None]
+    task_start       = [time.time()]
+    _scan_started    = [False]
+    _timer_ref       = [None]
 
-    # ── Sidebar ────────────────────────────────────────────────────────────────
-    _mini = [False]
+    # new-session form refs
+    _new_path_ref  = [None]
+    _new_sport_ref = [None]
+    _new_err_ref   = [None]
+    _new_hint_ref  = [None]
+    _new_files:    list = []
+
+    # combine refs
+    _combine_grade_val  = ['natural']
+    _combine_source_val = ['All accepted']
+
+    # export refs
+    _export_a16_val    = [True]
+    _export_a9_val     = [False]
+    _export_outdir_val = [str(config.OUTPUT_DIR)]
+    _export_ctl_refs:  list = []
+
+    # ── Sidebar — starts collapsed on session pages ────────────────────────────
+    _mini = [True]
     drawer = ui.left_drawer(value=True).style('background:#1a1a1a;border-right:1px solid #222')
-    drawer.props('breakpoint=0 width=180 mini-width=48')
-    with drawer:
-        sidebar('session', session_id, status)
+    drawer.props('breakpoint=0 width=180 mini-width=48 mini')
 
     def _toggle_nav() -> None:
         _mini[0] = not _mini[0]
-        if _mini[0]: drawer.props(add='mini')
-        else:        drawer.props(remove='mini')
+        if _mini[0]:
+            drawer.props(add='mini')
+        else:
+            drawer.props(remove='mini')
+        mb = menu_btn_ref[0]
+        if mb:
+            mb.props(f'icon={"menu" if _mini[0] else "chevron_left"}')
+
+    with drawer:
+        # Hamburger (collapsed) / chevron (expanded) lives at the top of the nav
+        with ui.row().style('width:100%;justify-content:flex-end;padding:0.2rem 0.3rem;margin:0'):
+            _mb = ui.button(icon='menu', on_click=_toggle_nav).props(
+                'flat round dense size=sm'
+            ).style('color:#666')
+            menu_btn_ref[0] = _mb
+        sidebar('session' if not is_new else 'home',
+                *((session_id, status) if not is_new else ()))
 
     # ── Page shell ─────────────────────────────────────────────────────────────
     with ui.column().style('width:100%;height:100vh;background:#111;padding:0;gap:0;overflow:hidden'):
@@ -443,137 +626,385 @@ def session_page(session_id: str) -> None:
         # ── Header ────────────────────────────────────────────────────────────
         with ui.row().style(
             f'height:{_HDR_H}px;flex-shrink:0;width:100%;align-items:center;'
-            'justify-content:space-between;padding:0 1rem;background:#141414;'
+            'justify-content:space-between;padding:0 0.75rem;background:#141414;'
             'border-bottom:1px solid #1a1a1a'
         ):
-            with ui.row().style('align-items:center;gap:0.5rem'):
-                ui.button(icon='menu', on_click=_toggle_nav).props('flat round dense').style('color:#888')
-                with ui.column().style('gap:0.1rem'):
+            with ui.row().style('align-items:center;gap:0.4rem'):
+                if is_new:
+                    ui.label('New session').style('color:#ddd;font-size:0.88rem;font-weight:600')
+                else:
                     ds = created.strftime('%Y-%m-%d %H:%M') if created else ''
-                    _est_total_s = max(60, int(total_s)) + max(30, int(total_s // 3)) + 60 + 120
-                    with ui.row().style('gap:0.75rem;align-items:baseline'):
-                        ui.label(f'{sport}  ·  {ds}  ·  est ~{_fmt(_est_total_s)}').style('color:#eee;font-size:0.88rem;font-weight:600')
-                        _he = ui.label('elapsed 0s').style('color:#5a8a9a;font-size:0.78rem')
-                        hdr_elapsed_ref[0] = _he
+                    _est = max(60, int(total_s)) + max(30, int(total_s // 3)) + 180
                     with ui.row().style('gap:0.6rem;align-items:baseline'):
-                        m0, s0 = divmod(int(total_s), 60)
-                        ui.label(
-                            f'{len(clip_ids)} clip{"s" if len(clip_ids)!=1 else ""}  ·  {m0}m{s0:02d}s'
-                        ).style('color:#666;font-size:0.7rem')
-                        _ht = ui.label('').style('color:#4a9a4a;font-size:0.7rem')
-                        hdr_time_ref[0] = _ht
-            _delete_session_button(session_id)
-
-        # ── Top row ───────────────────────────────────────────────────────────
-        with ui.row().style(f'width:100%;height:{_TOP_H};gap:0;flex-shrink:0;overflow:hidden'):
-
-            # Video column 60 %
-            with ui.column().style('width:60%;height:100%;gap:0;overflow:hidden;background:#000;flex-shrink:0'):
-                with ui.element('div').style('flex:1;min-height:0;position:relative;overflow:hidden;background:#000'):
-                    if init_src:
-                        ui.html(
-                            f'<video id="main-player" src="{init_src}" controls preload="metadata"'
-                            f' style="width:100%;height:100%;object-fit:contain;display:block;background:#000"></video>',
-                            sanitize=False,
+                        ui.label(f'{sport}  ·  {ds}  ·  est ~{_fmt(_est)}').style(
+                            'color:#ddd;font-size:0.85rem;font-weight:600'
                         )
-                    elif still_path.exists():
-                        ui.html(
-                            f'<img id="player-still" src="/stills/{session_id}_still.jpg"'
-                            f' style="width:100%;height:100%;object-fit:contain;display:block;background:#000">'
-                            '<video id="main-player" src="" controls preload="none"'
-                            ' style="width:100%;height:100%;object-fit:contain;display:none;background:#000"></video>',
-                            sanitize=False,
-                        )
+                        _he = ui.label('').style('color:#5a8a9a;font-size:0.75rem')
+                        hdr_elapsed_ref[0] = _he
+                    _ht = ui.label('').style('color:#4a9a4a;font-size:0.72rem;margin-left:0.25rem')
+                    hdr_time_ref[0] = _ht
+
+            if is_new:
+                ui.button('← Home', on_click=lambda: ui.navigate.to('/')).props('flat size=sm').style('color:#777')
+            else:
+                _delete_session_button(session_id)
+
+        # ── Body ──────────────────────────────────────────────────────────────
+        with ui.row().style(
+            f'width:100%;height:calc(100vh - {_HDR_H}px);gap:0;overflow:hidden;flex-shrink:0'
+        ):
+
+            # ── Stage table ────────────────────────────────────────────────────
+            with ui.element('div').classes('ax2-table'):
+
+                # Column header
+                with ui.element('div').classes('ax2-col-hdr'):
+                    ui.html('<span>Stage</span><span>Est</span><span>Act</span><span>N</span>',
+                            sanitize=False)
+
+                # helper: build one sub-row
+                def _sub_row(stage_id: str, label: str, est: str, actual: str, count_str: str):
+                    st = _stage_st(stage_id)
+                    css = f'ax2-sub {st}'
+                    with ui.element('div').classes(css) as _row:
+                        row_refs[stage_id] = _row
+                        _d = ui.html(_dot_html(st), sanitize=False, tag='span')
+                        dot_refs[stage_id] = _d
+                        ui.label(label).classes('ax2-sub-name')
+                        ui.label(est).classes('ax2-sub-est')
+                        _a = ui.label(actual).classes('ax2-sub-act')
+                        act_refs[stage_id] = _a
+                        _c = ui.label(count_str).classes('ax2-sub-count')
+                        count_refs[stage_id] = _c
+
+                # ── Select video ───────────────────────────────────────────────
+                _in_st = _stage_st('input')
+                _in_css = f'ax2-section {_in_st}'
+                with ui.element('div').classes(_in_css) as _row_input:
+                    row_refs['input'] = _row_input
+                    _in_dot = ui.html(_dot_html(_in_st), sanitize=False, tag='span')
+                    dot_refs['input'] = _in_dot
+                    ui.label('Select video').style('flex:1')
+                    ui.label('').classes('ax2-sec-est')
+                    ui.label('').classes('ax2-sec-act')
+                    _in_c = ui.label(str(len(clip_ids)) if clip_ids else '').classes('ax2-sec-count')
+                    count_refs['input'] = _in_c
+
+                # ── Trim video header ──────────────────────────────────────────
+                _trim_done = status in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED) if not is_new else False
+                _trim_active = initial_stage in ('proxy', 'scan', 'highlights', 'pick', 'combine')
+                _trim_css = 'ax2-section ' + ('done' if _trim_done else 'active' if _trim_active else '')
+                with ui.element('div').classes(_trim_css):
+                    ui.label('').style('width:9px;flex-shrink:0')
+                    ui.label('Trim video').style('flex:1;color:inherit')
+
+                # Sub-rows under Trim video
+                # Time column always shows the estimate; "est→actual" once known.
+                _est_str = {
+                    'proxy':      f'~{_fmt(max(60, int(total_s)))}' if total_s else '~2m',
+                    'scan':       f'~{_fmt(max(30, int(total_s // 3)))}' if total_s else '~1m',
+                    'highlights': 'auto',
+                    'pick':       '',
+                    'combine':    '~1m',
+                    'export':     '~2m',
+                }
+                _TASK_KEYS = {
+                    'proxy':      f'{session_id}_proxy',
+                    'scan':       f'{session_id}_scan',
+                    'highlights': f'{session_id}_highlights',
+                    'combine':    f'assemble_{session_id}',
+                    'export':     f'export_{session_id}',
+                }
+
+                def _init_act(stage: str) -> str:
+                    t = state.get_task(_TASK_KEYS[stage]) if not is_new else None
+                    return _fmt(t.elapsed) if t and t.elapsed is not None else ''
+
+                _n_prox_done = sum(
+                    1 for cid in clip_ids if (config.PROXY_DIR / f'{cid}.mp4').exists()
+                )
+                _sub_row('proxy', 'Creating working copy…', _est_str['proxy'], _init_act('proxy'),
+                         f'{_n_prox_done}/{len(clip_ids)}' if clip_ids and not all_proxies_done
+                         else (str(len(clip_ids)) if clip_ids else ''))
+
+                _sub_row('scan', 'Detecting scenes…', _est_str['scan'], _init_act('scan'),
+                         str(len(clip_ids)) if has_motion_data else '')
+
+                _sub_row('highlights', 'Finding clips…', _est_str['highlights'], _init_act('highlights'),
+                         str(len(mark_data)) if mark_data else '')
+
+                _n_acc = len(mark_data) - len(rejected_ids)
+                _n_rej = len(rejected_ids)
+                _sub_row('pick', 'Select clips',
+                         '', '',
+                         f'{_n_acc}·{_n_rej}' if mark_data else '')
+
+                _sub_row('combine', 'Combining clips…', _est_str['combine'], _init_act('combine'), '')
+
+                # ── Future steps ───────────────────────────────────────────────
+                with ui.element('div').classes('ax2-section future'):
+                    ui.label('').style('width:9px;flex-shrink:0')
+                    ui.label('Add text').style('flex:1')
+
+                with ui.element('div').classes('ax2-section future'):
+                    ui.label('').style('width:9px;flex-shrink:0')
+                    ui.label('Add music').style('flex:1')
+
+                # ── Export section row ─────────────────────────────────────────
+                _ex_st = _stage_st('export')
+                _ex_css = f'ax2-section {_ex_st}'
+                with ui.element('div').classes(_ex_css) as _row_export:
+                    row_refs['export'] = _row_export
+                    _ex_dot = ui.html(_dot_html(_ex_st), sanitize=False, tag='span')
+                    dot_refs['export'] = _ex_dot
+                    ui.label('Exporting video…').style('flex:1')
+                    ui.label(_est_str['export']).classes('ax2-sec-est')
+                    _ex_a = ui.label(_init_act('export')).classes('ax2-sec-act')
+                    act_refs['export'] = _ex_a
+                    _ex_c = ui.label('').classes('ax2-sec-count')
+                    count_refs['export'] = _ex_c
+
+                # Spacer
+                with ui.element('div').style('flex:1'):
+                    pass
+
+            # ── Player column ──────────────────────────────────────────────────
+            with ui.element('div').classes('ax2-player-col'):
+
+                # ── Action bar — step controls + next button, above the player ─
+                with ui.element('div').classes('ax2-action-bar'):
+
+                    if is_new:
+                        with ui.row().style('align-items:center;gap:0.4rem;flex:1'):
+                            _pi = ui.input(
+                                placeholder='/path/to/footage  or  /media/SDCARD/DCIM'
+                            ).style('flex:1;color:#eee;font-size:0.82rem')
+                            _new_path_ref[0] = _pi
+
+                            async def _browse_files() -> None:
+                                try:
+                                    from nicegui import app as ng_app
+                                    import webview
+                                    result = await ng_app.native.main_window.create_file_dialog(
+                                        webview.FileDialog.OPEN, allow_multiple=True,
+                                        file_types=('Video files (*.mp4;*.MP4;*.mov;*.MOV;*.avi)',),
+                                    )
+                                except Exception as exc:
+                                    ui.notify(f'File picker unavailable: {exc}', type='warning'); return
+                                if result:
+                                    paths = [Path(r) for r in result]
+                                    _new_files.clear(); _new_files.extend(paths)
+                                    _pi.set_value(str(paths[0].parent))
+                                    if _new_hint_ref[0]: _new_hint_ref[0].set_text(f'{len(paths)} file(s) selected')
+                                else:
+                                    try:
+                                        from nicegui import app as ng_app2
+                                        import webview as wv2
+                                        folder = await ng_app2.native.main_window.create_file_dialog(
+                                            wv2.FileDialog.FOLDER, allow_multiple=False)
+                                    except Exception as exc:
+                                        ui.notify(f'Folder picker unavailable: {exc}', type='warning'); return
+                                    if folder:
+                                        _pi.set_value(folder[0]); _new_files.clear()
+                                        if _new_hint_ref[0]: _new_hint_ref[0].set_text('All video files in folder')
+
+                            ui.button(icon='folder_open', on_click=_browse_files).props('flat round dense size=sm').tooltip('Browse')
+                            _hl = ui.label('').style('color:#666;font-size:0.72rem;min-width:80px')
+                            _new_hint_ref[0] = _hl
+                            _ss = ui.select(options=sports, value=sports[0] if sports else 'unknown',
+                                            label='Sport').style('min-width:100px')
+                            _new_sport_ref[0] = _ss
+                        _ne = ui.label('').style('color:#e57373;font-size:0.78rem')
+                        _new_err_ref[0] = _ne
+                        next_action['fn'] = None  # will be set by _do_start wiring below
+
                     else:
-                        ui.html(
-                            '<div id="player-ph" style="width:100%;height:100%;display:flex;flex-direction:column;'
-                            'align-items:center;justify-content:center;gap:0.5rem;background:#000">'
-                            '<span style="color:#3e3e3e;font-size:2.5rem">▷</span>'
-                            '<span style="color:#484848;font-size:0.82rem">No footage loaded yet</span>'
-                            '<span style="color:#5a5a5a;font-size:0.72rem">→ select Input in the step list</span></div>'
-                            '<video id="main-player" src="" controls preload="none"'
-                            ' style="width:100%;height:100%;object-fit:contain;display:none;background:#000"></video>',
-                            sanitize=False,
-                        )
-                # Timeline strip (20 % of column height)
-                with ui.column().style(
-                    f'height:{_TL_H};min-height:50px;flex-shrink:0;'
-                    'width:100%;overflow:hidden;background:#0a0a0a;border-top:1px solid #0d0d0d'
-                ) as _tl_col:
-                    _tl_el = ui.html('', sanitize=False).style('width:100%;height:100%;display:block')
-                    tl_html_ref[0] = _tl_el
-                _tl_col.set_visibility(False)
-                tl_col_ref[0] = _tl_col
+                        # Status label + per-step controls (shown per active stage)
+                        _ab_status = ui.label('').style('flex:1;color:#666;font-size:0.78rem')
 
-            # Step list column 40 %
-            with ui.column().style(
-                'width:40%;height:100%;gap:0;flex-shrink:0;'
-                'border-left:1px solid #1a1a1a;overflow-y:auto;background:#111'
-            ):
-                with ui.row().style(
-                    'padding:0.3rem 0.75rem;background:#0d0d0d;border-bottom:1px solid #1a1a1a;'
-                    'align-items:center;flex-shrink:0'
-                ):
-                    ui.label('Step').style('color:#3e3e3e;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.07em;flex:1')
-                    ui.label('Time').style('color:#3e3e3e;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.07em;width:84px;text-align:right')
-                    ui.label('Found').style('color:#3e3e3e;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.07em;width:52px;text-align:right')
+                        _method_sel = ui.select(
+                            options={'jpg': 'Quick (1fps)', 'proxy': 'Full (all frames)'},
+                            value=detect_method_ref[0],
+                        ).style('min-width:140px').props('dense outlined')
+                        _method_sel.on_value_change(lambda e: detect_method_ref.__setitem__(0, e.value))
+                        _method_sel_ref = [_method_sel]
 
-                for step_id, title, subtitle in _STEPS:
-                    st  = _step_st(step_id)
-                    est = (f'~{_fmt(max(60, int(total_s)))}' if step_id == 'proxy'
-                           else f'~{_fmt(max(30, int(total_s // 3)))}' if step_id == 'scan'
-                           else '~1m' if step_id == 'combine'
-                           else '~2m' if step_id == 'export' else '')
-                    count = (
-                        str(len(clip_ids)) if step_id == 'input' and clip_ids
-                        else str(len(mark_data)) if step_id in ('highlights', 'pick') and mark_data
-                        else ''
+                        _grade_sel = ui.select(
+                            options=_GRADES, value=_combine_grade_val[0], label='Grade',
+                        ).style('min-width:110px').props('dense outlined')
+                        _grade_sel.on_value_change(lambda e: _combine_grade_val.__setitem__(0, e.value))
+                        _grade_sel_ref = [_grade_sel]
+
+                        # Export controls — inline, shown only on the Export stage
+                        _ea16 = ui.checkbox('16:9', value=_export_a16_val[0]).props('dense')
+                        _ea16.on_value_change(lambda e: _export_a16_val.__setitem__(0, e.value))
+                        _ea9 = ui.checkbox('9:16', value=_export_a9_val[0]).props('dense')
+                        _ea9.on_value_change(lambda e: _export_a9_val.__setitem__(0, e.value))
+                        _eodir = ui.input(label='Output folder', value=_export_outdir_val[0]).style(
+                            'min-width:260px'
+                        ).props('dense outlined')
+                        _eodir.on_value_change(lambda e: _export_outdir_val.__setitem__(0, e.value))
+                        _export_ctl_refs.extend([_ea16, _ea9, _eodir])
+
+                    # Next-action button (rightmost — top right of the pane)
+                    _nbtn = ui.button(
+                        'Import & build working copy →' if is_new else '…',
+                        on_click=lambda: _handle_next_click(),
+                    ).props('color=positive size=sm')
+                    if not is_new:
+                        _nbtn.set_enabled(False)
+                    next_btn_ref[0] = _nbtn
+
+                # ── Progress strip — above player. Per-clip proxy/scan bars at
+                #    page load; combine bar filled dynamically by its watcher. ──
+                if not is_new:
+                    _bg_running = proxy_running or scan_running or highlights_running
+                    _strip = ui.element('div').style(
+                        'flex-shrink:0;background:#0d0d0d;border-bottom:1px solid #1a1a1a;'
+                        'padding:0.6rem 1rem 0.2rem'
                     )
-                    with ui.row().style(_row_style(step_id == initial)).on(
-                        'click', lambda s=step_id: _select_step(s)
-                    ) as _row:
-                        row_refs[step_id] = _row
-                        _dot = ui.html(_dot_html(st), sanitize=False, tag='span').style('margin-top:3px;flex-shrink:0')
-                        dot_refs[step_id] = _dot
-                        with ui.column().style('gap:0.06rem;flex:1;min-width:0'):
-                            _tc = '#eee' if step_id == initial else '#888'
-                            _tw = '600' if step_id == initial else '400'
-                            ui.label(title).style(f'font-size:0.83rem;font-weight:{_tw};color:{_tc};white-space:nowrap')
-                            ui.label(subtitle).style('color:#888;font-size:0.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis')
-                        _tl = ui.label(est).style('color:#5a5a5a;font-size:0.72rem;width:84px;text-align:right;flex-shrink:0')
-                        time_refs[step_id] = _tl
-                        _cl = ui.label(count).style('color:#5a5a5a;font-size:0.72rem;width:52px;text-align:right;flex-shrink:0')
-                        count_refs[step_id] = _cl
+                    strip_ref[0] = _strip
+                    with _strip:
+                        if _bg_running:
+                            prog = state.get_clip_progress(session_id)
+                            for cid, fname, _ in clip_info:
+                                bar_refs.setdefault(cid, {})
+                                cp = prog.get(cid, {})
+                                stages = _PROXY_STAGES if proxy_running else _SCAN_STAGES
+                                for stage in stages:
+                                    s  = cp.get(stage, StageState())
+                                    el = ui.html(_bar_html(s, _STAGE_LABEL[stage], stage, detect_method_ref[0]),
+                                                 sanitize=False)
+                                    bar_refs[cid][stage] = el
+                        _cb = ui.html('', sanitize=False)
+                        combine_bar_ref[0] = _cb
+                    if not _bg_running:
+                        _strip.set_visibility(False)
 
-        # ── Bottom row ─────────────────────────────────────────────────────────
-        with ui.column().style(f'width:100%;height:{_BOT_H};gap:0;border-top:1px solid #1a1a1a;overflow:hidden'):
-            ui.label('Video may take a moment to load.').style(
-                'color:#3a3a3a;font-size:0.68rem;text-align:center;padding:0.15rem 0;'
-                'flex-shrink:0;background:#111;border-bottom:1px solid #181818'
-            )
-            with ui.column().style('flex:1;min-height:0;overflow-y:auto;padding:0.75rem 1.25rem;gap:0') as _detail:
-                pass
-            detail_ref[0] = _detail
+                # ── Player frame: label strip + video area ─────────────────────
+                with ui.element('div').classes('ax2-player-frame'):
+                    _ptag = ui.label(init_tag).classes('ax2-player-tag')
+                    player_tag_ref[0] = _ptag
 
-            with ui.row().style(
-                'height:40px;flex-shrink:0;border-top:1px solid #1a1a1a;background:#141414;'
-                'padding:0 1rem;align-items:center;gap:0.75rem;justify-content:flex-end'
-            ):
-                ui.label('').style('color:#666;font-size:0.78rem;flex:1')
+                    with ui.element('div').classes('ax2-player-main'):
 
-                async def _handle_next_click() -> None:
-                    fn = next_action['fn']
-                    if not fn: return
-                    if inspect.iscoroutinefunction(fn):
-                        await fn()
-                    else:
-                        fn()
+                        if is_new:
+                            with ui.element('div').classes('ax2-dz'):
+                                with ui.element('div').classes('ax2-dz-ring'):
+                                    ui.html('▷', sanitize=False, tag='span')
+                                ui.label('No footage loaded yet').classes('ax2-dz-label')
+                                ui.label('enter a path or use Browse above').classes('ax2-dz-sub')
 
-                _nbtn = ui.button('…', on_click=_handle_next_click).props('color=positive size=sm')
-                _nbtn.set_enabled(False)
-                next_btn_ref[0] = _nbtn
+                        elif init_src:
+                            ui.html(
+                                f'<video id="main-player" src="{init_src}" controls preload="metadata"'
+                                ' style="position:absolute;top:0;left:0;width:100%;height:100%;'
+                                'object-fit:contain;display:block;background:#000"></video>',
+                                sanitize=False,
+                            )
+                        elif still_path.exists():
+                            ui.html(
+                                f'<img id="player-still" src="/stills/{session_id}_still.jpg"'
+                                ' style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;">'
+                                '<video id="main-player" src="" controls preload="none"'
+                                ' style="position:absolute;top:0;left:0;width:100%;height:100%;'
+                                'object-fit:contain;display:none;background:#000"></video>',
+                                sanitize=False,
+                            )
+                        else:
+                            ui.html(
+                                '<div id="player-ph" style="position:absolute;inset:0;display:flex;'
+                                'flex-direction:column;align-items:center;justify-content:center;'
+                                'gap:0.5rem;background:#000">'
+                                '<span style="color:#3e3e3e;font-size:2.5rem">▷</span>'
+                                '<span style="color:#484848;font-size:0.82rem">Building working copy…</span></div>'
+                                '<video id="main-player" src="" controls preload="none"'
+                                ' style="position:absolute;top:0;left:0;width:100%;height:100%;'
+                                'object-fit:contain;display:none;background:#000"></video>',
+                                sanitize=False,
+                            )
 
-    # ── Helper: set next button ────────────────────────────────────────────────
+                # ── Review panel ───────────────────────────────────────────────
+                with ui.element('div').classes('ax2-review-panel') as _review_panel:
+                    review_panel_ref[0] = _review_panel
+                    _tl = ui.html(
+                        _timeline_html(mark_data, clip_info) if mark_data else '',
+                        sanitize=False,
+                    ).style('width:100%;height:68px;flex-shrink:0;display:block;'
+                            'padding:4px 6px;box-sizing:border-box')
+                    tl_html_ref[0] = _tl
+                    with ui.element('div').style('flex:1;min-height:0;overflow-y:auto;'
+                                                 'padding:0.4rem 0.5rem'):
+                        _ca = ui.html('', sanitize=False)
+                        cards_html_ref[0] = _ca
+
+    # ── Wire new-session start ─────────────────────────────────────────────────
+    if is_new:
+        async def _do_start() -> None:
+            pi = _new_path_ref[0]; ss = _new_sport_ref[0]; er = _new_err_ref[0]
+            if not pi or not pi.value.strip():
+                if er: er.set_text('Enter a path or use Browse')
+                return
+            src_p = Path(pi.value.strip())
+            if not src_p.exists():
+                if er: er.set_text('Path not found')
+                return
+            if er: er.set_text('')
+            nb = next_btn_ref[0]
+            if nb: nb.set_enabled(False); nb.set_text('Importing…')
+            files_to_import = _new_files[:] if _new_files else None
+            try:
+                from axedup.processing.ingest import ingest_folder
+                from nicegui import run as ng_run
+                session_obj = await ng_run.io_bound(
+                    ingest_folder, src_p, ss.value if ss else 'unknown', None, files_to_import
+                )
+            except Exception as exc:
+                if nb: nb.set_enabled(True); nb.set_text('Import & build working copy →')
+                if er: er.set_text(str(exc))
+                return
+            sid = session_obj.id
+            with db_session() as _db:
+                first_clip = _db.query(Clip).filter(Clip.session_id == sid).order_by(Clip.clip_order).first()
+            if first_clip:
+                still_dest = config.STILL_DIR / f'{sid}_still.jpg'
+                from axedup.processing.analysis import extract_source_still
+                from nicegui import run as ng_run2
+                await ng_run2.io_bound(extract_source_still, Path(first_clip.filepath), still_dest)
+            state.start_task(f'{sid}_proxy')
+
+            def _on_event(clip_id, stage, evt_status, message, completed, total):
+                if clip_id is None: return
+                if evt_status in ('running', 'done', 'skipped'):
+                    state.update_clip_stage(sid, clip_id, stage, evt_status)
+                elif evt_status == 'progress' and completed is not None and total:
+                    pct = int(completed * 100 / total)
+                    state.update_clip_stage(sid, clip_id, stage, 'running',
+                                            pct=pct, completed=completed, total=total, message=message)
+
+            def _run_proxy():
+                try:
+                    from axedup.processing.analysis import build_proxy_only
+                    build_proxy_only(sid, on_event=_on_event)
+                    state.finish_task(f'{sid}_proxy')
+                except Exception as exc:
+                    state.finish_task(f'{sid}_proxy', error=str(exc))
+
+            threading.Thread(target=_run_proxy, daemon=True).start()
+            ui.navigate.to(f'/session/{sid}')
+
+        next_action['fn'] = _do_start
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+
+    async def _handle_next_click() -> None:
+        fn = next_action['fn']
+        if not fn: return
+        if inspect.iscoroutinefunction(fn):
+            await fn()
+        else:
+            fn()
+
     def _set_next_btn(label: str, enabled: bool, fn) -> None:
         b = next_btn_ref[0]
         if not b: return
@@ -582,370 +1013,149 @@ def session_page(session_id: str) -> None:
         b.props(f'color={"positive" if enabled else "grey-7"}')
         next_action['fn'] = fn
 
-    # ── Step selection ─────────────────────────────────────────────────────────
-    def _select_step(step_id: str) -> None:
-        selected[0] = step_id
-        for sid, row_el in row_refs.items():
-            row_el.style(_row_style(sid == step_id))
-        tl = tl_col_ref[0]
-        if tl is not None:
-            show = step_id == 'pick' and bool(mark_data)
-            tl.set_visibility(show)
-            if show and tl_html_ref[0]:
-                tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info))
-        bar_refs.clear()
-        d = detail_ref[0]
-        if d is None: return
-        d.clear()
-        with d:
-            if   step_id == 'input':      _detail_input()
-            elif step_id == 'proxy':      _detail_proxy()
-            elif step_id == 'method':     _detail_method()
-            elif step_id == 'scan':       _detail_scan()
-            elif step_id == 'highlights': _detail_highlights()
-            elif step_id == 'pick':       _detail_pick()
-            elif step_id == 'combine':    _detail_combine()
-            elif step_id == 'export':     _detail_export()
-        _refresh_next_btn()
+    def _set_act(stage: str, actual_s: float | None) -> None:
+        """Update a stage's Act cell; Est cells are static."""
+        lbl = act_refs.get(stage)
+        if not lbl: return
+        lbl.set_text(_fmt(actual_s) if actual_s is not None else '')
 
-    def _refresh_next_btn() -> None:
-        step = selected[0]
-        if step == 'input':
-            if clip_ids: _set_next_btn('See working copy →', True, lambda: _select_step('proxy'))
-            else:        _set_next_btn('(choose footage above)', False, None)
-        elif step == 'proxy':
+    def _set_player_tag(text: str) -> None:
+        if player_tag_ref[0]:
+            player_tag_ref[0].set_text(text)
+
+    def _set_active_row(stage_id: str) -> None:
+        """Highlight one stage-table row as active, clear all others."""
+        # Sub-row stages
+        sub_stages = ('proxy', 'scan', 'highlights', 'pick', 'combine')
+        sec_stages = ('input', 'export')
+        for sid, el in row_refs.items():
+            if sid in sub_stages:
+                base = f'ax2-sub {_stage_st(sid)}'
+                el.classes(replace=base + (' active' if sid == stage_id else ''))
+            elif sid in sec_stages:
+                st = _stage_st(sid)
+                base = f'ax2-section {st}'
+                el.classes(replace=base + (' active' if sid == stage_id else ''))
+
+    def _update_action_bar_for_stage(stage: str) -> None:
+        if is_new: return
+        _set_active_row(stage)
+        # Show/hide optional controls
+        _method_sel_ref[0].set_visibility(
+            stage == 'scan' and not (scan_running or _scan_started[0])
+        )
+        _grade_sel_ref[0].set_visibility(stage == 'combine' and not combining_lock[0])
+        _etask = state.get_task(f'export_{session_id}')
+        _exporting = _etask is not None and not _etask.done
+        for _c in _export_ctl_refs:
+            _c.set_visibility(stage == 'export' and not _exporting)
+
+        if stage == 'input':
+            _set_next_btn('Working copy ready →' if clip_ids else '(load footage first)', bool(clip_ids), None)
+            _ab_status.set_text(f'{len(clip_ids)} clip(s) · {_fmt(int(total_s))}' if clip_ids else '')
+        elif stage == 'proxy':
             if all_proxies_done:
-                _set_next_btn('Look for scenes by… →', True, lambda: _select_step('method'))
+                _set_next_btn('Start scan →', True, _start_scan)
             else:
-                _set_next_btn('Look for scenes by… →', False, None)
-        elif step == 'method':
+                _set_next_btn('Building working copy…', False, None)
+            _ab_status.set_text('')
+        elif stage == 'scan':
             if _scan_started[0] or scan_running:
-                _set_next_btn('Detecting scenes →', False, None)
+                _set_next_btn('Detecting scenes…', False, None)
             else:
                 _set_next_btn('Start scan →', all_proxies_done, _start_scan)
-        elif step == 'scan':
-            if has_motion_data:
-                _set_next_btn('Find clips →', True, lambda: _select_step('highlights'))
-            elif scan_running or _scan_started[0]:
-                _set_next_btn('Finding clips →', False, None)
+            _ab_status.set_text(f'Method: {"Quick" if detect_method_ref[0]=="jpg" else "Full"}')
+        elif stage == 'highlights':
+            if post_analysis and mark_data:
+                _set_next_btn('Review clips →', True, _enter_review)
             else:
-                _set_next_btn('Start scan →', all_proxies_done, _start_scan)
-        elif step == 'highlights':
-            if post_analysis:
-                _set_next_btn('Select clips →', True, lambda: _select_step('pick'))
+                _set_next_btn('Finding clips…', False, None)
+            _ab_status.set_text(f'{len(mark_data)} clips found' if mark_data else '')
+        elif stage == 'pick':
+            if review_mode[0]:
+                n_acc2 = len(mark_data) - len(rejected_ids)
+                n_rej2 = len(rejected_ids)
+                _set_next_btn('Save & combine clips →', bool(mark_data), _save_and_combine)
+                _ab_status.set_text(f'{n_acc2} in · {n_rej2} out')
             else:
-                _set_next_btn('Select clips →', False, None)
-        elif step == 'pick':
-            _set_next_btn('Save & combine clips →', bool(mark_data), _save_and_combine)
-        elif step == 'combine':
-            _assemble_task = state.get_task(f'assemble_{session_id}')
-            if _assemble_task and not _assemble_task.done:
-                _set_next_btn('Continue to export →', False, None)
+                can_review = post_analysis and bool(mark_data) and not combining_lock[0]
+                _set_next_btn('Review clips →', can_review, _enter_review)
+                _ab_status.set_text('')
+        elif stage == 'combine':
+            assemble_task = state.get_task(f'assemble_{session_id}')
+            if assemble_task and not assemble_task.done:
+                _set_next_btn('Combining…', False, None)
             elif preview_path.exists():
-                _set_next_btn('Continue to export →', True, lambda: _select_step('export'))
+                _set_next_btn('Continue to export →', True, lambda: _update_action_bar_for_stage('export'))
             else:
-                _set_next_btn('Combine clips →', True, _run_combine)
-        elif step == 'export':
-            _export_task = state.get_task(f'export_{session_id}')
-            if _export_task and not _export_task.done:
+                _set_next_btn('Combine clips →', bool(mark_data), _run_combine)
+            _ab_status.set_text(f'Grade: {_combine_grade_val[0]}')
+        elif stage == 'export':
+            export_task = state.get_task(f'export_{session_id}')
+            if export_task and not export_task.done:
                 _set_next_btn('Exporting…', False, None)
             else:
-                _set_next_btn('Export →', True, _do_export_trigger)
+                _set_next_btn('Export →', True, _do_export_start)
+            _ab_status.set_text('')
 
-    # ── Detail renderers ───────────────────────────────────────────────────────
+    # ── REVIEW mode ────────────────────────────────────────────────────────────
 
-    def _detail_input() -> None:
-        ui.label('Source footage').style('color:#666;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem')
-        ui.label(src or '(none)').style('color:#888;font-size:0.8rem;font-family:monospace;word-break:break-all;margin-bottom:0.6rem')
-        ui.label(f'Sport: {sport}').style('color:#666;font-size:0.8rem;margin-bottom:0.5rem')
-        if clip_info:
-            ui.label('Clips').style('color:#666;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem')
-            for cid, fname, dur_s in clip_info:
-                with ui.row().style('align-items:center;gap:0.75rem;margin-bottom:0.2rem'):
-                    ui.label(fname).style('color:#777;font-size:0.8rem;font-family:monospace;flex:1')
-                    ui.label(_fmt(int(dur_s or 0))).style('color:#5a5a5a;font-size:0.78rem')
-        else:
-            ui.label('No clips — use Start editing from the home page to load footage.').style('color:#888;font-size:0.82rem')
-
-    def _detail_proxy() -> None:
-        prog = state.get_clip_progress(session_id)
-        if all_proxies_done:
-            with ui.row().style('align-items:center;gap:0.5rem;margin-bottom:0.75rem'):
-                ui.icon('check_circle').style('color:#5a9a5a;font-size:1rem')
-                ui.label('Working copy ready — choose how to look for scenes').style('color:#5a9a5a;font-size:0.82rem')
-        else:
-            ui.label('Building working copy…').style('color:#f0a040;font-size:0.82rem;margin-bottom:0.5rem')
-        first_clip = True
-        for cid, fname, _ in clip_info:
-            ui.label(fname).style('color:#666;font-size:0.75rem;font-family:monospace;margin-top:0.5rem;margin-bottom:0.25rem')
-            cp = prog.get(cid, {})
-            bar_refs[cid] = {}
-            for stage in _PROXY_STAGES:
-                s  = cp.get(stage, StageState())
-                el = ui.html(_bar_html(s, _STAGE_LABEL[stage], stage), sanitize=False)
-                bar_refs[cid][stage] = el
-                if first_clip:
-                    ui.label(_STAGE_BYLINE[stage]).style('color:#484848;font-size:0.68rem;margin-bottom:4px;padding-left:2px')
-            first_clip = False
-
-    def _detail_method() -> None:
-        if not all_proxies_done:
-            ui.label('Finish building the working copy first.').style('color:#666;font-size:0.82rem')
+    def _enter_review() -> None:
+        if combining_lock[0]:
+            ui.notify('Wait for combine to finish before reviewing again', type='warning')
             return
-        if has_motion_data or post_analysis:
-            with ui.row().style('align-items:center;gap:0.5rem;margin-bottom:0.5rem'):
-                ui.icon('check_circle').style('color:#5a9a5a;font-size:1rem')
-                ui.label('How to look for scenes set — scenes already detected.').style('color:#5a9a5a;font-size:0.82rem')
-            return
-        ui.label('Both methods use optical flow — the difference is how frames are sampled.').style('color:#aaa;font-size:0.82rem;margin-bottom:0.4rem')
-        method_radio = ui.radio(
-            options={
-                'jpg':   'Quick — 1fps sample  (~15× faster, good for most footage)',
-                'proxy': 'Full — all frames  (slower, more accurate for low-contrast clips)',
-            },
-            value=detect_method_ref[0],
-        ).props('dense').style('color:#ccc;margin-bottom:0.4rem')
-        method_radio.on_value_change(lambda e: detect_method_ref.__setitem__(0, e.value))
-        ui.label('Quick: ffmpeg extracts 1 frame/s, then optical flow compares those frames.  Full: OpenCV decodes every frame and samples every 0.5s.').style(
-            'color:#888;font-size:0.73rem'
-        )
+        review_mode[0] = True
+        _set_player_tag('Working copy')   # review plays from proxies
+        ui.run_javascript("document.querySelector('.ax2-table').classList.add('ax2-review')")
+        rp = review_panel_ref[0]
+        if rp: rp.classes(add='visible')
+        if tl_html_ref[0]:
+            tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info) if mark_data else '')
+        if cards_html_ref[0]:
+            cards_html_ref[0].set_content(_build_cards_html())
+        _update_action_bar_for_stage('pick')
+        _init_pick_js()
 
-    def _detail_scan() -> None:
-        prog = state.get_clip_progress(session_id)
-        if not all_proxies_done:
-            ui.label('Finish building the working copy first, then choose how to look for scenes.').style('color:#666;font-size:0.82rem')
-            return
-        if has_motion_data:
-            with ui.row().style('align-items:center;gap:0.5rem;margin-bottom:0.75rem'):
-                ui.icon('check_circle').style('color:#5a9a5a;font-size:1rem')
-                ui.label('Scenes detected — see Finding clips… for results.').style('color:#5a9a5a;font-size:0.82rem')
-        elif scan_running or _scan_started[0]:
-            ui.html('<span class="tl-run" style="color:#f0a040;font-size:0.82rem">Detecting scenes…</span>',
-                    sanitize=False).style('margin-bottom:0.5rem;display:block')
-        else:
-            ui.label('Click Start scan → below to begin detecting scenes.').style('color:#666;font-size:0.82rem;margin-bottom:0.5rem')
-        # Show bars for all clips as soon as scan is started (pending state until events arrive)
-        if not has_motion_data and not scan_running and not _scan_started[0]:
-            return
-        first_clip = True
-        for cid, fname, _ in clip_info:
-            cp = prog.get(cid, {})
-            ui.label(fname).style('color:#666;font-size:0.75rem;font-family:monospace;margin-top:0.5rem;margin-bottom:0.25rem')
-            bar_refs.setdefault(cid, {})
-            for stage in _SCAN_STAGES:
-                s  = cp.get(stage, StageState())
-                el = ui.html(_bar_html(s, _STAGE_LABEL[stage], stage, detect_method_ref[0]), sanitize=False)
-                bar_refs[cid][stage] = el
-                if first_clip:
-                    ui.label(_STAGE_BYLINE[stage]).style('color:#484848;font-size:0.68rem;margin-bottom:4px;padding-left:2px')
-            first_clip = False
+    def _exit_review() -> None:
+        review_mode[0] = False
+        ui.run_javascript("document.querySelector('.ax2-table').classList.remove('ax2-review')")
+        rp = review_panel_ref[0]
+        if rp: rp.classes(remove='visible')
+        _update_action_bar_for_stage('pick')
 
-    def _detail_highlights() -> None:
-        ui.label('This step is automatic — no action required.').style('color:#888;font-size:0.78rem;margin-bottom:0.4rem')
-        if not has_motion_data:
-            ui.label('Waiting for Detecting scenes… to complete first.').style('color:#666;font-size:0.82rem')
-            return
-        if post_analysis:
-            n = len(mark_data)
-            with ui.row().style('align-items:center;gap:0.5rem;margin-bottom:0.5rem'):
-                ui.icon('check_circle').style('color:#5a9a5a;font-size:1rem')
-                ui.label(f'{n} clip{"s" if n!=1 else ""} found — see Select clips to review').style('color:#5a9a5a;font-size:0.82rem')
-        elif highlights_running:
-            ui.html('<span class="tl-run" style="color:#f0a040;font-size:0.82rem">Finding clips…</span>',
-                    sanitize=False).style('display:block;margin-bottom:0.25rem')
-            ui.label('Peak detection is fast — usually done in seconds.').style('color:#666;font-size:0.75rem')
-        else:
-            ui.label('Clip detection runs automatically after scenes are detected.').style('color:#666;font-size:0.82rem')
-
-    _combine_grade_val  = ['natural']
-    _combine_source_val = ['All accepted']
-    _combine_err_ref    = [None]
-    _combine_status_ref = [None]
-    _combine_bar_ref    = [None]
-    _combine_done_ref   = [False]
-    _c_done_ref         = [0]
-    _c_total_ref        = [0]
-
-    def _combine_bar_content(done: int, total: int, finished: bool = False) -> str:
-        if finished:
-            return (
-                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                '<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">Combining</span>'
-                '<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a">'
-                '<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
-                '<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
-                '</div>'
-            )
-        if total:
-            pct = int(done / total * 100)
-            lbl = f'Combining {done}/{total}'
-            return (
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{lbl}</span>'
-                f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-                f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;'
-                f'transition:width 0.3s ease"></div></div>'
-                f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
-                f'</div>'
-            )
-        return (
-            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-            '<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">Combining</span>'
-            '<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-            '<div style="height:100%;width:40%;background:#f0a040;border-radius:4px;'
-            'animation:tl-pulse 1.5s ease-in-out infinite"></div></div>'
-            '<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">…</span>'
-            '</div>'
-        )
-
-    def _detail_combine() -> None:
-        if preview_path.exists():
-            ui.label('Preview ready — adjust settings and combine again, or continue to Export.').style('color:#5a9a5a;font-size:0.8rem;margin-bottom:0.5rem')
-        else:
-            ui.label('Choose grade and source, then click Combine clips → below.').style('color:#666;font-size:0.78rem;margin-bottom:0.5rem')
-
-        with ui.row().style('gap:1rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:0.5rem'):
-            grade_sel  = ui.select(options=_GRADES, value=_combine_grade_val[0], label='Colour grade').style('min-width:130px')
-            grade_sel.on_value_change(lambda e: _combine_grade_val.__setitem__(0, e.value))
-            source_sel = ui.select(
-                options=['All accepted', 'Still-frame picks', 'Motion picks'],
-                value=_combine_source_val[0], label='Which picks',
-            ).style('min-width:150px')
-            source_sel.on_value_change(lambda e: _combine_source_val.__setitem__(0, e.value))
-        _cbar    = ui.html('', sanitize=False)
-        _cerr    = ui.label('').style('color:#e57373;font-size:0.82rem;min-height:1rem')
-        _cstatus = ui.label('').style('color:#777;font-size:0.82rem;min-height:1rem')
-        _combine_bar_ref[0]    = _cbar
-        _combine_err_ref[0]    = _cerr
-        _combine_status_ref[0] = _cstatus
-        # Restore current state immediately when re-entering this step
-        _ctask = state.get_task(f'assemble_{session_id}')
-        if _ctask and not _ctask.done and not _ctask.error:
-            _cbar.set_content(_combine_bar_content(_c_done_ref[0], _c_total_ref[0]))
-            _cstatus.set_text('Combining…')
-        elif preview_path.exists():
-            _cbar.set_content(_combine_bar_content(0, 0, finished=True))
-            _cstatus.set_text('Done.')
-
-    _export_a16_val    = [True]
-    _export_a9_val     = [False]
-    _export_outdir_val = [str(config.OUTPUT_DIR)]
-    _export_err_ref    = [None]
-    _export_status_ref = [None]
-    _export_bar_ref    = [None]
-    _export_out_ref    = [None]
-    _export_pct_ref    = [0]
-    _export_aspect_ref = ['']
-
-    def _export_export_bar_content(pct: int, aspect: str, done: bool = False) -> str:
-        if done:
-            return (
-                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-                '<span style="color:#5a9a5a;font-size:0.78rem;flex-shrink:0;width:148px">Export</span>'
-                '<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a">'
-                '<div style="height:100%;width:100%;background:#5a9a5a;border-radius:4px"></div></div>'
-                '<span style="color:#3a7a3a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
-                '</div>'
-            )
-        lbl = f'Exporting {aspect}' if aspect else 'Exporting'
-        return (
-            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-            f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{lbl}</span>'
-            f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-            f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;'
-            f'transition:width 0.4s ease"></div></div>'
-            f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
-            f'</div>'
-        )
-
-    def _detail_export() -> None:
-        ui.label('Choose output settings, then click Export → below.').style('color:#666;font-size:0.78rem;margin-bottom:0.5rem')
-        ui.label('Aspect ratios').style('color:#aaa;font-size:0.82rem;margin-bottom:0.3rem')
-        _a16 = ui.checkbox('16:9  (YouTube / landscape)', value=_export_a16_val[0])
-        _a9  = ui.checkbox('9:16  (Reels / portrait)',    value=_export_a9_val[0])
-        _a16.on_value_change(lambda e: _export_a16_val.__setitem__(0, e.value))
-        _a9.on_value_change(lambda e:  _export_a9_val.__setitem__(0, e.value))
-        ui.label('Output folder').style('color:#aaa;font-size:0.78rem;margin-top:0.5rem;margin-bottom:0.2rem')
-        with ui.row().style('align-items:center;gap:0.5rem;max-width:440px'):
-            _odir = ui.input(value=_export_outdir_val[0]).style('flex:1;color:#eee')
-            _odir.on_value_change(lambda e: _export_outdir_val.__setitem__(0, e.value))
-            from axedup.ui.filepicker import browse_button
-            browse_button(lambda p: (_odir.set_value(p), _export_outdir_val.__setitem__(0, p)), tooltip='Browse')
-        _ebar    = ui.html('', sanitize=False)
-        _eerr    = ui.label('').style('color:#e57373;font-size:0.82rem;min-height:1rem')
-        _estatus = ui.label('').style('color:#777;font-size:0.82rem;min-height:1rem')
-        _export_bar_ref[0]    = _ebar
-        _export_err_ref[0]    = _eerr
-        _export_status_ref[0] = _estatus
-        _eout = ui.element('div').style('margin-top:0.5rem')
-        _export_out_ref[0] = _eout
-        _show_exports(session_id, _eout)
-        # Re-entering this step while export is running: restore current progress immediately
-        _etask = state.get_task(f'export_{session_id}')
-        if _etask and not _etask.done and not _etask.error:
-            _ebar.set_content(_export_export_bar_content(_export_pct_ref[0], _export_aspect_ref[0]))
-            _estatus.set_text(f'Exporting {_export_aspect_ref[0]}…')
-        elif _etask and _etask.done:
-            _ebar.set_content(_export_export_bar_content(100, _export_aspect_ref[0], done=True))
-            _estatus.set_text('Export complete.')
-
-    def _detail_pick() -> None:
-        if not mark_data:
-            ui.label('No clips found yet.').style('color:#666;font-size:0.82rem;margin-bottom:0.5rem')
-            if scan_running or highlights_running:
-                ui.label('Scan is still running — check back shortly.').style('color:#888;font-size:0.78rem')
-            return
-        n_acc = len(mark_data) - len(rejected_ids)
-        n_rej = len(rejected_ids)
-        with ui.row().style('align-items:center;gap:1.5rem;margin-bottom:0.75rem'):
-            ui.label(f'{len(mark_data)} moments found').style('color:#888;font-size:0.82rem')
-            ui.html(
-                f'<span id="pick-summary" style="color:#5a8aaa;font-size:0.82rem">'
-                f'{n_acc} selected · {n_rej} skipped</span>',
-                sanitize=False,
-            )
-        ui.label('Timeline').style('color:#888;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.25rem')
-        ui.label(
-            'Each bar in the strip above is a moment the app found interesting. '
-            'Click a bar to jump to that moment in the player. '
-            'Click again to toggle whether it is included in the edit.'
-        ).style('color:#888;font-size:0.78rem;line-height:1.5;margin-bottom:0.3rem')
-        ui.label('Green ✓ = include  ·  Red striped ✗ = skip  ·  Or click a card below.').style('color:#3e3e3e;font-size:0.73rem;margin-bottom:0.5rem')
-
-        # Thumbnail card grid — raw HTML so onclick works without Python roundtrip
-        _cards_parts = ['<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">']
+    def _build_cards_html() -> str:
+        parts = ['<div style="display:flex;flex-wrap:wrap;gap:0.4rem">']
         for mid, cid, in_s, out_s, score, source in mark_data:
             thumb = config.THUMB_DIR / cid / f'mark_{mid}.jpg'
             img_part = (
-                f'<img src="/thumbs/{cid}/mark_{mid}.jpg" style="width:100%;height:56px;object-fit:cover;display:block">'
+                f'<img src="/thumbs/{cid}/mark_{mid}.jpg" style="width:100%;height:60px;object-fit:cover;display:block">'
                 if thumb.exists() else
-                '<div style="width:100%;height:56px;background:#111"></div>'
+                '<div style="width:100%;height:60px;background:#111"></div>'
             )
             ts_label = f'{_tsfmt(in_s)}–{_tsfmt(out_s)}'
             accepted = mid not in rejected_ids
-            border_col = '#2a7a2a' if accepted else '#7a2a2a'
-            badge_col  = '#2a7a2a' if accepted else '#7a2a2a'
-            badge_icon = '✓' if accepted else '✗'
-            _cards_parts.append(
-                f'<div id="card-{mid}" '
-                f'onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})" '
+            bc = '#2a7a2a' if accepted else '#7a2a2a'
+            bi = '✓' if accepted else '✗'
+            parts.append(
+                f'<div id="card-{mid}" onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})" '
                 f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
-                f'cursor:pointer;border:2px solid {border_col};flex-shrink:0;position:relative">'
+                f'cursor:pointer;border:2px solid {bc};flex-shrink:0;position:relative">'
                 f'{img_part}'
                 f'<div id="card-badge-{mid}" style="position:absolute;top:3px;right:3px;'
-                f'width:16px;height:16px;border-radius:50%;background:{badge_col};'
+                f'width:16px;height:16px;border-radius:50%;background:{bc};'
                 f'display:flex;align-items:center;justify-content:center;'
-                f'font-size:0.5rem;color:#fff;font-weight:bold;pointer-events:none">'
-                f'{badge_icon}</div>'
+                f'font-size:0.5rem;color:#fff;font-weight:bold;pointer-events:none">{bi}</div>'
                 f'<div style="padding:0.2rem 0.35rem">'
-                f'<div style="color:#777;font-size:0.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ts_label}</div>'
-                f'<div style="color:#5a5a5a;font-size:0.58rem">{score:.2f}</div>'
+                f'<div style="color:#888;font-size:0.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ts_label}</div>'
+                f'<div style="color:#555;font-size:0.58rem">{score:.2f}</div>'
                 f'</div></div>'
             )
-        _cards_parts.append('</div>')
-        ui.html(''.join(_cards_parts), sanitize=False)
+        parts.append('</div>')
+        return ''.join(parts)
 
+    def _init_pick_js() -> None:
         init = {mid: (mid not in rejected_ids) for mid, *_ in mark_data}
+        pick_count_id = f'c{count_refs["pick"].id}' if 'pick' in count_refs else ''
         ui.run_javascript(f'''
 window.axedup_decisions = {json.dumps(init)};
 
@@ -954,10 +1164,7 @@ function _axedupToggle(mid, ok) {{
   var card = document.getElementById("card-" + mid);
   if (card) card.style.borderColor = ok ? "#2a7a2a" : "#7a2a2a";
   var badge = document.getElementById("card-badge-" + mid);
-  if (badge) {{
-    badge.style.background = ok ? "#2a7a2a" : "#7a2a2a";
-    badge.textContent = ok ? "✓" : "✗";
-  }}
+  if (badge) {{ badge.style.background = ok ? "#2a7a2a" : "#7a2a2a"; badge.textContent = ok ? "✓" : "✗"; }}
   var bar = document.getElementById("mark-" + mid);
   if (bar) {{
     bar.style.background = ok ? "#2a7a2a" : "#7a2a2a";
@@ -967,8 +1174,8 @@ function _axedupToggle(mid, ok) {{
     if (ico) ico.textContent = ok ? "✓" : "✗";
   }}
   var acc = Object.values(window.axedup_decisions).filter(Boolean).length;
-  var s = document.getElementById("pick-summary");
-  if (s) s.textContent = acc + " selected · " + (Object.keys(window.axedup_decisions).length - acc) + " skipped";
+  var s = document.getElementById("{pick_count_id}");
+  if (s) s.textContent = acc + "·" + (Object.keys(window.axedup_decisions).length - acc);
 }}
 
 function _axedupSeek(cid, ins) {{
@@ -1008,8 +1215,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
             elif evt_status == 'progress' and completed is not None and total:
                 pct = int(completed * 100 / total)
                 state.update_clip_stage(session_id, clip_id, stage, 'running',
-                                        pct=pct, completed=completed, total=total,
-                                        message=message)
+                                        pct=pct, completed=completed, total=total, message=message)
 
         def _run():
             try:
@@ -1021,9 +1227,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 detect_peaks(session_id, on_event=_on_event, motion_method=method)
                 state.finish_task(f'{session_id}_highlights')
                 with db_session() as _db:
-                    _sess = _db.query(Session).filter(Session.id == session_id).first()
-                    if _sess:
-                        _sess.status = SessionStatus.READY
+                    _s = _db.query(Session).filter(Session.id == session_id).first()
+                    if _s: _s.status = SessionStatus.READY
                 state.start_task(f'{session_id}_thumbnails')
                 extract_mark_thumbnails(session_id, on_event=_on_event)
                 state.finish_task(f'{session_id}_thumbnails')
@@ -1034,7 +1239,9 @@ window.axedupCardClick = function(mid, cid, ins) {{
         _scan_started[0] = True
         if _timer_ref[0] is not None:
             _timer_ref[0].active = True
-        _select_step('scan')
+        _update_action_bar_for_stage('scan')
+        if 'scan' in dot_refs: dot_refs['scan'].set_content(_dot_html('running'))
+        _set_act('scan', None)
 
     async def _save_and_combine() -> None:
         raw = await ui.run_javascript('JSON.stringify(window.axedup_decisions || {})')
@@ -1048,24 +1255,22 @@ window.axedupCardClick = function(mid, cid, ins) {{
                     if keep: acc += 1
                     else:    rej += 1
         ui.notify(f'Saved: {acc} in, {rej} out', type='positive')
-        _select_step('combine')
+        _exit_review()
+        _update_action_bar_for_stage('combine')
 
     def _run_combine() -> None:
         _src_map = {'All accepted': None, 'Still-frame picks': 'jpg', 'Motion picks': 'proxy'}
         grade   = _combine_grade_val[0]
         src_val = _src_map.get(_combine_source_val[0])
-        nb = next_btn_ref[0]
-        if nb: nb.set_enabled(False); nb.set_text('Combining…')
-        if _combine_err_ref[0]:    _combine_err_ref[0].set_text('')
-        if _combine_status_ref[0]: _combine_status_ref[0].set_text('Combining clips…')
+        combining_lock[0] = True
         key = f'assemble_{session_id}'
-        t0  = time.time()
         state.start_task(key)
-        _combine_done_ref[0] = False
 
         def _on_combine_progress(done: int, total: int) -> None:
-            _c_done_ref[0]  = done
-            _c_total_ref[0] = total
+            # Shared state, not page refs — survives navigating away and back
+            state.update_task_progress(key,
+                                       pct=int(done / total * 100) if total else None,
+                                       message=f'{done} of {total} segments' if total else None)
 
         def _run():
             try:
@@ -1077,55 +1282,65 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 state.finish_task(key, error=str(exc))
         threading.Thread(target=_run, daemon=True).start()
 
+        _update_action_bar_for_stage('combine')
+        if 'combine' in dot_refs: dot_refs['combine'].set_content(_dot_html('running'))
+        _watch_combine()
+
+    def _watch_combine() -> None:
+        """Poll the assemble task — called at start and re-attached on page load."""
+        key = f'assemble_{session_id}'
+
         def _cpoll():
             t = state.get_task(key)
             if not t: return
-            elapsed = _fmt(time.time() - t0)
-            done  = _c_done_ref[0]
-            total = _c_total_ref[0]
+            elapsed_s = t.elapsed or 0.0
+            elapsed   = _fmt(elapsed_s)
             if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'combining: {elapsed}')
             if t.error:
-                if _combine_err_ref[0]:    _combine_err_ref[0].set_text(t.error)
-                if hdr_time_ref[0]:        hdr_time_ref[0].set_text('')
-                if nb: nb.set_enabled(True); nb.set_text('Combine clips →')
-                next_action['fn'] = _run_combine
+                combining_lock[0] = False
+                ui.notify(f'Combine error: {t.error}', type='negative', timeout=0)
+                _set_next_btn('Combine clips →', True, _run_combine)
+                if 'combine' in count_refs: count_refs['combine'].set_text('error')
+                _set_act('combine', None)
+                if 'combine' in dot_refs:   dot_refs['combine'].set_content(_dot_html('pending'))
+                if combine_bar_ref[0]: combine_bar_ref[0].set_content('')
+                if strip_ref[0]: strip_ref[0].set_visibility(False)
                 _ct.active = False; return
             if t.done:
-                _combine_done_ref[0] = True
-                if _combine_status_ref[0]: _combine_status_ref[0].set_text(f'Done in {elapsed}.')
-                if hdr_time_ref[0]:        hdr_time_ref[0].set_text(f'combined: {elapsed}')
-                if _combine_bar_ref[0]:
-                    _combine_bar_ref[0].set_content(_combine_bar_content(0, 0, finished=True))
-                if nb: nb.set_enabled(True); nb.set_text('Continue to export →')
-                next_action['fn'] = lambda: _select_step('export')
+                combining_lock[0] = False
+                if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'combined: {elapsed}')
+                if 'combine' in dot_refs:  dot_refs['combine'].set_content(_dot_html('done'))
+                _set_act('combine', elapsed_s)
+                if 'combine' in count_refs: count_refs['combine'].set_text('done')
                 _ct.active = False
+                _update_action_bar_for_stage('combine')
                 ui.navigate.to(f'/session/{session_id}')
             else:
-                if _combine_status_ref[0]: _combine_status_ref[0].set_text(f'Combining… {elapsed} elapsed')
-                if _combine_bar_ref[0]:
-                    _combine_bar_ref[0].set_content(_combine_bar_content(done, total))
+                pct_str = f'{t.pct}%' if t.pct is not None else '…'
+                if 'combine' in count_refs: count_refs['combine'].set_text(pct_str)
+                _set_act('combine', elapsed_s)
+                if combine_bar_ref[0]:
+                    combine_bar_ref[0].set_content(_bar_html(
+                        StageState(status='running', pct=t.pct, message=t.message),
+                        'Combining clips', 'combine',
+                    ))
+                if strip_ref[0]: strip_ref[0].set_visibility(True)
         _ct = ui.timer(2.0, _cpoll)
 
-    def _do_export_trigger() -> None:
+    def _do_export_start() -> None:
         aspects = []
         if _export_a16_val[0]: aspects.append('16:9')
         if _export_a9_val[0]:  aspects.append('9:16')
         if not aspects:
-            if _export_err_ref[0]: _export_err_ref[0].set_text('Select at least one aspect ratio')
-            ui.notify('Select at least one aspect ratio', type='warning')
-            return
+            ui.notify('Select at least one aspect ratio', type='warning'); return
         out_dir = _export_outdir_val[0].strip() or None
-        nb = next_btn_ref[0]
-        if nb: nb.set_enabled(False); nb.set_text('Exporting…'); nb.props('color=grey-7')
-        if _export_err_ref[0]:    _export_err_ref[0].set_text('')
-        if _export_status_ref[0]: _export_status_ref[0].set_text('Starting encoder…')
         key = f'export_{session_id}'
-        t0  = time.time()
         state.start_task(key)
+        _update_action_bar_for_stage('export')
 
         def _on_progress(aspect: str, pct: int) -> None:
-            _export_pct_ref[0]    = pct
-            _export_aspect_ref[0] = aspect
+            # Shared state, not page refs — survives navigating away and back
+            state.update_task_progress(key, pct=pct, message=aspect)
 
         def _run():
             try:
@@ -1139,329 +1354,181 @@ window.axedupCardClick = function(mid, cid, ins) {{
             except Exception as exc:
                 state.finish_task(key, error=str(exc))
         threading.Thread(target=_run, daemon=True).start()
+        if 'export' in dot_refs: dot_refs['export'].set_content(_dot_html('running'))
+        _watch_export()
+
+    def _watch_export() -> None:
+        """Poll the export task — called at start and re-attached on page load."""
+        key = f'export_{session_id}'
 
         def _epoll():
             t = state.get_task(key)
             if not t: return
-            elapsed = _fmt(time.time() - t0)
-            pct = _export_pct_ref[0]
-            asp = _export_aspect_ref[0]
+            elapsed_s = t.elapsed or 0.0
+            elapsed   = _fmt(elapsed_s)
+            pct = t.pct or 0
+            asp = t.message or ''
             if t.error:
-                if _export_err_ref[0]: _export_err_ref[0].set_text(t.error)
-                if _export_bar_ref[0]: _export_bar_ref[0].set_content('')
-                if hdr_time_ref[0]:    hdr_time_ref[0].set_text('')
-                if nb: nb.set_enabled(True); nb.set_text('Export →')
-                next_action['fn'] = _do_export_trigger
+                ui.notify(f'Export error: {t.error}', type='negative', timeout=0)
+                if hdr_time_ref[0]: hdr_time_ref[0].set_text('')
+                if 'export' in dot_refs:  dot_refs['export'].set_content(_dot_html('active'))
+                _set_act('export', None)
+                _update_action_bar_for_stage('export')
                 _et.active = False; return
             if t.done:
-                if _export_status_ref[0]: _export_status_ref[0].set_text(f'Done in {elapsed}.')
-                if _export_bar_ref[0]:    _export_bar_ref[0].set_content(_export_export_bar_content(100, asp, done=True))
-                if hdr_time_ref[0]:       hdr_time_ref[0].set_text(f'exported: {elapsed}')
-                if nb: nb.set_enabled(False); nb.set_text('Exported ✓')
-                if 'export'  in dot_refs: dot_refs['export'].set_content(_dot_html('done'))
-                if 'combine' in dot_refs: dot_refs['combine'].set_content(_dot_html('done'))
-                if 'pick'    in dot_refs: dot_refs['pick'].set_content(_dot_html('done'))
+                if hdr_time_ref[0]:  hdr_time_ref[0].set_text(f'exported: {elapsed}')
+                if 'export' in dot_refs:  dot_refs['export'].set_content(_dot_html('done'))
+                _set_act('export', elapsed_s)
+                if 'export' in count_refs: count_refs['export'].set_text('done')
                 _elapsed_timer.active = False
                 _et.active = False
-                if _export_out_ref[0]: _show_exports(session_id, _export_out_ref[0])
+                # Reload so the exported video is mounted in the player
+                ui.navigate.to(f'/session/{session_id}')
             else:
-                if _export_status_ref[0]: _export_status_ref[0].set_text(f'Exporting {asp}… {elapsed} elapsed')
-                if _export_bar_ref[0]:    _export_bar_ref[0].set_content(_export_export_bar_content(pct, asp))
-                if hdr_time_ref[0]:       hdr_time_ref[0].set_text(f'exporting: {elapsed}')
+                if hdr_time_ref[0]:
+                    hdr_time_ref[0].set_text(f'exporting {asp}: {pct}% · {elapsed}')
+                _set_act('export', elapsed_s)
+                if 'export' in count_refs: count_refs['export'].set_text(f'{pct}%')
         _et = ui.timer(1.0, _epoll)
 
     # ── Initial render ─────────────────────────────────────────────────────────
-    _select_step(initial)
+    if not is_new:
+        _update_action_bar_for_stage(initial_stage)
+        if post_analysis and mark_data and tl_html_ref[0]:
+            tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info))
 
-    # ── Persistent elapsed timer ───────────────────────────────────────────────
+    # ── Elapsed timer ──────────────────────────────────────────────────────────
     def _elapsed_tick() -> None:
         import datetime
-        elapsed_s = max(0, int((datetime.datetime.utcnow() - created).total_seconds())) if created else 0
+        if not created: return
+        elapsed_s = max(0, int((datetime.datetime.utcnow() - created).total_seconds()))
         m, s = divmod(elapsed_s, 60)
-        text = f'elapsed {m}m{s:02d}s' if m else f'elapsed {s}s'
         if hdr_elapsed_ref[0]:
-            hdr_elapsed_ref[0].set_text(text)
+            hdr_elapsed_ref[0].set_text(f'elapsed {m}m{s:02d}s' if m else f'elapsed {s}s')
 
-    _elapsed_timer = ui.timer(1.0, _elapsed_tick)
+    _elapsed_timer = ui.timer(1.0, _elapsed_tick, active=not is_new)
 
-    # ── Poll timer ──────────────────────────────────────────────────────────────
-    _any_bg = proxy_running or scan_running or highlights_running
+    # ── Re-attach watchers for combine/export still running from a previous
+    #    page view (user navigated away and back) ──────────────────────────────
+    if not is_new:
+        _t_asm1 = state.get_task(f'assemble_{session_id}')
+        if _t_asm1 and not _t_asm1.done:
+            combining_lock[0] = True
+            _watch_combine()
+        _t_exp1 = state.get_task(f'export_{session_id}')
+        if _t_exp1 and not _t_exp1.done:
+            _watch_export()
+
+    # ── Background task poll ───────────────────────────────────────────────────
+    if is_new:
+        return
+
+    _any_bg      = proxy_running or scan_running or highlights_running
     _proxy_shown = [bool(init_src)]
 
     def _poll() -> None:
-            tp   = state.get_task(f'{session_id}_proxy')
-            ts   = state.get_task(f'{session_id}_scan')
-            th   = state.get_task(f'{session_id}_highlights')
-            tleg = state.get_task(session_id)
+        tp   = state.get_task(f'{session_id}_proxy')
+        ts   = state.get_task(f'{session_id}_scan')
+        th   = state.get_task(f'{session_id}_highlights')
+        tleg = state.get_task(session_id)
 
-            _p_active = tp   is not None and not tp.done
-            _s_active = ts   is not None and not ts.done
-            _h_active = th   is not None and not th.done
-            _l_active = tleg is not None and not tleg.done
-            still_running = _p_active or _s_active or _h_active or _l_active
+        _p_active = tp   is not None and not tp.done
+        _s_active = ts   is not None and not ts.done
+        _h_active = th   is not None and not th.done
+        _l_active = tleg is not None and not tleg.done
+        still_running = _p_active or _s_active or _h_active or _l_active
 
-            prog    = state.get_clip_progress(session_id)
-            elapsed = _fmt(time.time() - task_start[0])
+        prog    = state.get_clip_progress(session_id)
+        elapsed = _fmt(time.time() - task_start[0])
 
-            # Header timing + dot updates
-            if _p_active:
-                est = _fmt(max(60, int(total_s)))
-                if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'working copy: {elapsed} / ~{est}')
-                if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('running'))
-            elif _s_active:
-                est = _fmt(max(30, int(total_s // 3)))
-                if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'scanning: {elapsed} / ~{est}')
-                if 'scan'   in dot_refs: dot_refs['scan'].set_content(_dot_html('running'))
-                if 'method' in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
-            elif _h_active:
-                if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'finding clips: {elapsed}')
-                if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('running'))
-                if 'scan'       in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
-                if 'method'     in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
+        def _t_elapsed(t) -> float:
+            # Task's own clock survives the page reloads between stages
+            return t.elapsed if t and t.elapsed is not None else (time.time() - task_start[0])
 
-            # Keep completed-step dots green after their task finishes
-            if tp and tp.done:
-                if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('done'))
-            if ts and ts.done:
-                if 'scan'   in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
-                if 'method' in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
-            if th and th.done:
-                if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('done'))
-                if 'scan'       in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
-                if 'method'     in dot_refs: dot_refs['method'].set_content(_dot_html('done'))
+        def _n_stage_done(stage: str) -> int:
+            return sum(1 for cid in clip_ids
+                       if prog.get(cid, {}).get(stage, StageState()).status in ('done', 'skipped'))
 
-            # Reveal proxy player (swap still/placeholder → video) when first proxy is ready
-            if not _proxy_shown[0] and clip_ids:
-                px_st = prog.get(clip_ids[0], {}).get('proxy', StageState())
-                if px_st.status in ('done', 'skipped'):
-                    _proxy_shown[0] = True
-                    ui.run_javascript(f'''
-                      var v=document.getElementById("main-player");
-                      var ph=document.getElementById("player-ph");
-                      var st=document.getElementById("player-still");
-                      if(v){{v.src="/proxies/{clip_ids[0]}.mp4";v.load();v.style.display="block";}}
-                      if(ph)ph.style.display="none";
-                      if(st)st.style.display="none";
-                    ''')
+        if _p_active:
+            el_s = _t_elapsed(tp or tleg)
+            est  = _fmt(max(60, int(total_s)))
+            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'working copy: {_fmt(el_s)} / ~{est}')
+            if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('running'))
+            _set_act('proxy', el_s)
+            if 'proxy' in count_refs and clip_ids:
+                count_refs['proxy'].set_text(f'{_n_stage_done("proxy")}/{len(clip_ids)}')
+        elif _s_active:
+            el_s = _t_elapsed(ts)
+            est  = _fmt(max(30, int(total_s // 3)))
+            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'scanning: {_fmt(el_s)} / ~{est}')
+            if 'scan' in dot_refs:  dot_refs['scan'].set_content(_dot_html('running'))
+            _set_act('scan', el_s)
+            if 'scan' in count_refs and clip_ids:
+                count_refs['scan'].set_text(f'{_n_stage_done("motion")}/{len(clip_ids)}')
+        elif _h_active:
+            el_s = _t_elapsed(th)
+            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'finding clips: {_fmt(el_s)}')
+            if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('running'))
+            _set_act('highlights', el_s)
 
-            # Update detail-pane bars
-            step_stage_map = {
-                'proxy': _PROXY_STAGES,
-                'scan':  _SCAN_STAGES,
-            }
-            if selected[0] in step_stage_map:
-                stages = step_stage_map[selected[0]]
-                for cid, stage_map in bar_refs.items():
-                    cp = prog.get(cid, {})
-                    for stage, el in stage_map.items():
-                        if stage in stages:
-                            el.set_content(_bar_html(
-                                cp.get(stage, StageState()),
-                                _STAGE_LABEL[stage], stage, detect_method_ref[0],
-                            ))
+        if tp and tp.done:
+            if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('done'))
+            _set_act('proxy', tp.elapsed)
+            if 'proxy' in count_refs and clip_ids: count_refs['proxy'].set_text(str(len(clip_ids)))
+        if ts and ts.done:
+            if 'scan' in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
+            _set_act('scan', ts.elapsed)
+            if 'scan' in count_refs and clip_ids: count_refs['scan'].set_text(str(len(clip_ids)))
+        if th and th.done:
+            if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('done'))
+            _set_act('highlights', th.elapsed)
+            n_marks = 0
+            with db_session() as _db2:
+                if clip_ids:
+                    n_marks = _db2.query(Mark).join(Clip, Mark.clip_id == Clip.id).filter(
+                        Mark.clip_id.in_(clip_ids)
+                    ).count()
+            if 'highlights' in count_refs and n_marks:
+                count_refs['highlights'].set_text(str(n_marks))
+            if 'pick' in dot_refs: dot_refs['pick'].set_content(_dot_html('active'))
 
-            # Error check
-            for t in (tp, ts, th, tleg):
-                if t and t.error:
-                    ui.notify(f'Error: {t.error}', type='negative', timeout=0)
-                    _timer.active = False
-                    return
+        # Reveal proxy video when first proxy ready
+        if not _proxy_shown[0] and clip_ids:
+            px_st = prog.get(clip_ids[0], {}).get('proxy', StageState())
+            if px_st.status in ('done', 'skipped'):
+                _proxy_shown[0] = True
+                _set_player_tag('Working copy')
+                ui.run_javascript(f'''
+                  var v=document.getElementById("main-player");
+                  var ph=document.getElementById("player-ph");
+                  var st=document.getElementById("player-still");
+                  if(v){{v.src="/proxies/{clip_ids[0]}.mp4";v.load();v.style.display="block";}}
+                  if(ph)ph.style.display="none";
+                  if(st)st.style.display="none";
+                ''')
 
-            # Completion
-            if not still_running:
-                _timer.active = False
-                if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'took {elapsed}')
-                ui.navigate.to(f'/session/{session_id}')
+        # Update overlay progress bars
+        step_stage_map = {'proxy': _PROXY_STAGES, 'scan': _SCAN_STAGES}
+        if initial_stage in step_stage_map:
+            stages = step_stage_map[initial_stage]
+            for cid, stage_map in bar_refs.items():
+                cp = prog.get(cid, {})
+                for stage, el in stage_map.items():
+                    if stage in stages:
+                        el.set_content(_bar_html(
+                            cp.get(stage, StageState()),
+                            _STAGE_LABEL[stage], stage, detect_method_ref[0],
+                        ))
+
+        for t in (tp, ts, th, tleg):
+            if t and t.error:
+                ui.notify(f'Error: {t.error}', type='negative', timeout=0)
+                _timer.active = False; return
+
+        if not still_running:
+            _timer.active = False
+            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'took {elapsed}')
+            ui.navigate.to(f'/session/{session_id}')
 
     _timer = ui.timer(0.5, _poll, active=_any_bg)
     _timer_ref[0] = _timer
-
-
-# ── New session view (/session/new) ────────────────────────────────────────────
-
-def _new_session_ui() -> None:
-    """3-pane layout for a brand-new session (no DB record yet).
-    File picker + sport + method live in the Input step's detail pane.
-    On Import, ingest runs, proxy task begins, then navigates to /session/{id}.
-    """
-    with db_session() as db:
-        sports = [p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB
-
-    sel_files: list[Path] = []
-    path_input_ref = [None]
-    sport_sel_ref  = [None]
-    err_ref        = [None]
-    start_btn_ref  = [None]
-    start_lbl_ref  = [None]
-
-    async def _do_start() -> None:
-        pi = path_input_ref[0]; ss = sport_sel_ref[0]; er = err_ref[0]
-        sb = start_btn_ref[0]; sl = start_lbl_ref[0]
-        if not pi or not pi.value.strip():
-            if er: er.set_text('Enter a path or use the browse button')
-            return
-        src = Path(pi.value.strip())
-        if not src.exists():
-            if er: er.set_text('Path not found — check and try again')
-            return
-        if er: er.set_text('')
-        if sb: sb.set_enabled(False)
-        if sl: sl.set_text('Importing clips…')
-
-        files_to_import = sel_files[:] if sel_files else None
-        try:
-            from axedup.processing.ingest import ingest_folder
-            from nicegui import run as ng_run
-            session_obj = await ng_run.io_bound(ingest_folder, src, ss.value if ss else 'unknown', None, files_to_import)
-        except Exception as exc:
-            if sb: sb.set_enabled(True)
-            if sl: sl.set_text('')
-            if er: er.set_text(str(exc))
-            return
-
-        sid = session_obj.id
-
-        # Extract a still from first source file for the player placeholder
-        if sl: sl.set_text('Extracting preview frame…')
-        with db_session() as db:
-            first_clip = db.query(Clip).filter(Clip.session_id == sid).order_by(Clip.clip_order).first()
-        if first_clip:
-            still_dest = config.STILL_DIR / f'{sid}_still.jpg'
-            from axedup.processing.analysis import extract_source_still
-            await ng_run.io_bound(extract_source_still, Path(first_clip.filepath), still_dest)
-
-        state.start_task(f'{sid}_proxy')
-
-        def _on_event(clip_id, stage, evt_status, message, completed, total):
-            if clip_id is None: return
-            if evt_status in ('running', 'done', 'skipped'):
-                state.update_clip_stage(sid, clip_id, stage, evt_status)
-            elif evt_status == 'progress' and completed is not None and total:
-                pct = int(completed * 100 / total)
-                state.update_clip_stage(sid, clip_id, stage, 'running',
-                                        pct=pct, completed=completed, total=total, message=message)
-
-        def _run_proxy():
-            try:
-                from axedup.processing.analysis import build_proxy_only
-                build_proxy_only(sid, on_event=_on_event)
-                state.finish_task(f'{sid}_proxy')
-            except Exception as exc:
-                state.finish_task(f'{sid}_proxy', error=str(exc))
-
-        threading.Thread(target=_run_proxy, daemon=True).start()
-        ui.navigate.to(f'/session/{sid}')
-
-    _mini = [False]
-    drawer = ui.left_drawer(value=True).style('background:#1a1a1a;border-right:1px solid #222')
-    drawer.props('breakpoint=0 width=180 mini-width=48')
-    with drawer:
-        sidebar('home')
-
-    def _toggle_nav() -> None:
-        _mini[0] = not _mini[0]
-        if _mini[0]: drawer.props(add='mini')
-        else:        drawer.props(remove='mini')
-
-    with ui.column().style('width:100%;height:100vh;background:#111;padding:0;gap:0;overflow:hidden'):
-        # Header
-        with ui.row().style(
-            f'height:{_HDR_H}px;flex-shrink:0;width:100%;align-items:center;'
-            'justify-content:space-between;padding:0 1rem;background:#141414;border-bottom:1px solid #1a1a1a'
-        ):
-            with ui.row().style('align-items:center;gap:0.5rem'):
-                ui.button(icon='menu', on_click=_toggle_nav).props('flat round dense').style('color:#888')
-                ui.label('New session').style('color:#eee;font-size:0.88rem;font-weight:600')
-            ui.button('← Home', on_click=lambda: ui.navigate.to('/')).props('flat size=sm').style('color:#888')
-
-        # Top row
-        with ui.row().style(f'width:100%;height:{_TOP_H};gap:0;flex-shrink:0;overflow:hidden'):
-            # Video placeholder
-            with ui.column().style(
-                'width:60%;height:100%;background:#000;'
-                'align-items:center;justify-content:center;flex-shrink:0'
-            ):
-                ui.html(
-                    '<div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem">'
-                    '<span style="color:#5a5a5a;font-size:2.5rem">▷</span>'
-                    '<span style="color:#5a5a5a;font-size:0.82rem">Preview will appear here</span></div>',
-                    sanitize=False,
-                )
-            # Step list
-            with ui.column().style(
-                'width:40%;height:100%;gap:0;flex-shrink:0;'
-                'border-left:1px solid #1a1a1a;overflow-y:auto;background:#111'
-            ):
-                with ui.row().style(
-                    'padding:0.3rem 0.75rem;background:#0d0d0d;border-bottom:1px solid #1a1a1a;flex-shrink:0'
-                ):
-                    ui.label('Step').style('color:#3e3e3e;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.07em')
-                for step_id, title, subtitle in _STEPS:
-                    st = 'active' if step_id == 'input' else 'pending'
-                    with ui.row().style(_row_style(step_id == 'input')):
-                        ui.html(_dot_html(st), sanitize=False, tag='span').style('margin-top:3px;flex-shrink:0')
-                        with ui.column().style('gap:0.06rem;flex:1;min-width:0'):
-                            tc = '#eee' if step_id == 'input' else '#444'
-                            tw = '600' if step_id == 'input' else '400'
-                            ui.label(title).style(f'font-size:0.83rem;font-weight:{tw};color:{tc}')
-                            ui.label(subtitle).style('color:#888;font-size:0.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis')
-
-        # Bottom detail
-        with ui.column().style(f'width:100%;height:{_BOT_H};gap:0;border-top:1px solid #1a1a1a;overflow:hidden'):
-            with ui.column().style('flex:1;min-height:0;overflow-y:auto;padding:0.75rem 1.25rem;gap:0'):
-                ui.label('Select footage').style('color:#aaa;font-size:0.85rem;font-weight:600;margin-bottom:0.4rem')
-                ui.label('Pick one or more video files, or a folder to import everything in it.').style(
-                    'color:#888;font-size:0.77rem;margin-bottom:0.5rem'
-                )
-                with ui.row().style('align-items:center;gap:0.5rem;max-width:480px'):
-                    _pi = ui.input(placeholder='/path/to/clip.mp4  or  /media/SDCARD/DCIM').style('flex:1;color:#eee')
-                    path_input_ref[0] = _pi
-                    _hint = ui.label('').style('color:#888;font-size:0.78rem')
-
-                    async def _browse() -> None:
-                        try:
-                            from nicegui import app as nicegui_app
-                            import webview
-                            result = await nicegui_app.native.main_window.create_file_dialog(
-                                webview.FileDialog.OPEN, allow_multiple=True,
-                                file_types=('Video files (*.mp4;*.MP4;*.mov;*.MOV;*.avi)',),
-                            )
-                        except Exception as exc:
-                            ui.notify(f'File picker unavailable: {exc}', type='warning')
-                            return
-                        if result:
-                            paths = [Path(r) for r in result]
-                            sel_files.clear(); sel_files.extend(paths)
-                            _pi.set_value(str(paths[0].parent))
-                            _hint.set_text(f'{len(paths)} file(s) selected')
-                        else:
-                            try:
-                                from nicegui import app as nicegui_app
-                                import webview
-                                folder = await nicegui_app.native.main_window.create_file_dialog(
-                                    webview.FileDialog.FOLDER, allow_multiple=False)
-                            except Exception as exc:
-                                ui.notify(f'Folder picker unavailable: {exc}', type='warning')
-                                return
-                            if folder:
-                                _pi.set_value(folder[0])
-                                sel_files.clear()
-                                _hint.set_text('All video files in this folder will be imported')
-
-                    ui.button(icon='folder_open', on_click=_browse).props('flat round dense').tooltip('Browse')
-
-                with ui.row().style('gap:1.5rem;margin-top:0.6rem;flex-wrap:wrap;align-items:flex-end'):
-                    _ss = ui.select(options=sports, value=sports[0], label='Sport').style('min-width:130px')
-                    sport_sel_ref[0] = _ss
-
-                _er = ui.label('').style('color:#e57373;font-size:0.82rem;min-height:1rem;margin-top:0.25rem')
-                err_ref[0] = _er
-
-            with ui.row().style(
-                'height:40px;flex-shrink:0;border-top:1px solid #1a1a1a;background:#141414;'
-                'padding:0 1rem;align-items:center;gap:0.75rem;justify-content:flex-end'
-            ):
-                _sl = ui.label('').style('color:#666;font-size:0.78rem;flex:1')
-                start_lbl_ref[0] = _sl
-                _sb = ui.button('Import & build working copy →', on_click=_do_start).props('color=positive size=sm')
-                start_btn_ref[0] = _sb

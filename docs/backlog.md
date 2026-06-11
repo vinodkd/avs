@@ -4,6 +4,13 @@ Struck-through items are committed.
 
 ---
 
+## Review / clip selection
+
+- [ ] **Manual mark creation from dead zones** — gaps between system-detected marks in the timeline should be clickable and draggable to create a new mark. User should be able to include footage the system didn't flag. (Prerequisite for boring-region feature below.)
+- [ ] **Boring-region detection and auto-rejection** — flag segments where all signals (motion, audio, telemetry) are below threshold as `MarkStatus.BORING`. These appear as a third bucket in the Select clips count ("9 in · 3 out · 4 skipped"). User can override any boring-flagged segment by clicking it in the timeline to include it. Boring regions are visually distinct (e.g. hatched or dimmed) but still interactive.
+
+---
+
 ## Analysis pipeline
 
 - [ ] Progress and visibility
@@ -26,6 +33,20 @@ Struck-through items are committed.
   - [ ] Add `analyzed_at`, `assembled_at`, `exported_at` timestamps to `Session`
   - [ ] Add `analysis_duration_s`, `assembly_duration_s`, `export_duration_s` to `Session`
   - [ ] Show timings in `axedup sessions` output
+  - [ ] Stage-table "est→actual" times: actuals live in in-process task state, so
+        they survive page reloads but are lost on app restart — persist via the
+        duration columns above
+
+- [ ] Crash/restart robustness (stage completion is inferred, not recorded)
+  - [ ] Proxy: `all_proxies_done` is file-existence-based; an app kill mid-build
+        leaves a half-written proxy file that reads as "done" on restart and
+        plays corrupt. Write to a temp name and rename on completion, or record
+        per-clip proxy completion in the DB
+  - [ ] Scan: `has_motion_data` is true after the first telemetry rows, so a
+        partially scanned session reads as scan-complete on restart. Record
+        per-clip scan completion in the DB
+  - (combine/export are already restart-safe: status stays READY/ASSEMBLED until
+   the step finishes, so the UI correctly offers the step again)
 
 ---
 
