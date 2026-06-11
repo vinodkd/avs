@@ -568,7 +568,7 @@ def session_page(session_id: str) -> None:
     count_refs:      dict[str, object] = {}
     player_tag_ref   = [None]
     strip_ref        = [None]
-    combine_bar_ref  = [None]
+    task_bar_ref  = [None]
     row_refs:        dict[str, object] = {}   # stage_id → ui.element for class updates
     bar_refs:        dict[str, dict]   = {}
     tl_html_ref      = [None]
@@ -877,7 +877,7 @@ def session_page(session_id: str) -> None:
                                                  sanitize=False)
                                     bar_refs[cid][stage] = el
                         _cb = ui.html('', sanitize=False)
-                        combine_bar_ref[0] = _cb
+                        task_bar_ref[0] = _cb
                     if not _bg_running:
                         _strip.set_visibility(False)
 
@@ -1303,7 +1303,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 if 'combine' in count_refs: count_refs['combine'].set_text('error')
                 _set_act('combine', None)
                 if 'combine' in dot_refs:   dot_refs['combine'].set_content(_dot_html('pending'))
-                if combine_bar_ref[0]: combine_bar_ref[0].set_content('')
+                if task_bar_ref[0]: task_bar_ref[0].set_content('')
                 if strip_ref[0]: strip_ref[0].set_visibility(False)
                 _ct.active = False; return
             if t.done:
@@ -1319,8 +1319,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 pct_str = f'{t.pct}%' if t.pct is not None else '…'
                 if 'combine' in count_refs: count_refs['combine'].set_text(pct_str)
                 _set_act('combine', elapsed_s)
-                if combine_bar_ref[0]:
-                    combine_bar_ref[0].set_content(_bar_html(
+                if task_bar_ref[0]:
+                    task_bar_ref[0].set_content(_bar_html(
                         StageState(status='running', pct=t.pct, message=t.message),
                         'Combining clips', 'combine',
                     ))
@@ -1373,6 +1373,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 if hdr_time_ref[0]: hdr_time_ref[0].set_text('')
                 if 'export' in dot_refs:  dot_refs['export'].set_content(_dot_html('active'))
                 _set_act('export', None)
+                if task_bar_ref[0]: task_bar_ref[0].set_content('')
+                if strip_ref[0]: strip_ref[0].set_visibility(False)
                 _update_action_bar_for_stage('export')
                 _et.active = False; return
             if t.done:
@@ -1389,6 +1391,12 @@ window.axedupCardClick = function(mid, cid, ins) {{
                     hdr_time_ref[0].set_text(f'exporting {asp}: {pct}% · {elapsed}')
                 _set_act('export', elapsed_s)
                 if 'export' in count_refs: count_refs['export'].set_text(f'{pct}%')
+                if task_bar_ref[0]:
+                    task_bar_ref[0].set_content(_bar_html(
+                        StageState(status='running', pct=pct),
+                        f'Exporting {asp}' if asp else 'Exporting', 'export',
+                    ))
+                if strip_ref[0]: strip_ref[0].set_visibility(True)
         _et = ui.timer(1.0, _epoll)
 
     # ── Initial render ─────────────────────────────────────────────────────────

@@ -11,6 +11,28 @@ Struck-through items are committed.
 
 ---
 
+## Session UI
+
+- [ ] **Grade swatch strip** (decided 2026-06-11) — at the Combine stage, render one
+  representative proxy frame through each grade's filter string and show a row of
+  small swatches, one per grade, so the user compares side by side before choosing.
+  Cheap: grades are plain FFmpeg `eq`/`colorbalance` filters; a per-grade still
+  renders in well under a second on the 480p proxy.
+- [ ] **Sport profile info popover** (decided 2026-06-11) — popover next to the sport
+  selector listing what the active profile actually sets: default color grade, music
+  energy, target durations (YouTube/short), min/max clip length, telemetry overlay
+  flags, motion/speed thresholds, scene-detection tuning. Only show fields that are
+  wired into the pipeline today, or it overpromises.
+- [ ] **Settings screen** (decided 2026-06-11) — the sidebar's "Settings (soon)" entry
+  becomes real. Two parts:
+  - Preferences: default sport, default grade, default scan method (quick/full),
+    default export aspects + output folder. Needs a small key/value settings store
+    (table or JSON in the config dir).
+  - **Edit profiles**: edit all per-sport `Profile` fields (the popover list above)
+    with a reset-to-defaults action per profile (defaults live in `presets/sports.py`).
+
+---
+
 ## Analysis pipeline
 
 - [ ] Progress and visibility
