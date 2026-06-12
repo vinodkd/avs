@@ -34,11 +34,10 @@ appear (→ CLI — power users).
   Shipped, including click-for-full-size preview in the player. Grades were retuned
   for visual separation (midtone-based warm/cool); may need further tweaking after
   more real-footage use.
-- [ ] **Sport profile info popover** (decided 2026-06-11) — popover next to the sport
-  selector listing what the active profile actually sets: default color grade, music
-  energy, target durations (YouTube/short), min/max clip length, telemetry overlay
-  flags, motion/speed thresholds, scene-detection tuning. Only show fields that are
-  wired into the pipeline today, or it overpromises.
+- [x] ~~**Sport profile info popover** (decided 2026-06-11) — popover next to the sport
+  selector listing what the active profile actually sets.~~ Shipped: shows the three
+  wired-in settings (grade, motion threshold, scene detection) with the inert fields
+  called out; friendly sport display names added alongside (storage keys unchanged).
 - [ ] **Settings screen** (decided 2026-06-11) — the sidebar's "Settings (soon)" entry
   becomes real. Two parts:
   - Preferences: default sport, default grade, default scan method (quick/full),
