@@ -9,11 +9,12 @@ Source of truth for priorities and pending work. Struck-through items are commit
 1. **Signal enrichment** — audio spike detection, combined scoring (motion +
    telemetry + audio), boring-region flagging, manual mark creation
    (→ Review / clip selection, Analysis pipeline → Audio scoring)
-2. **Session UI follow-ups** — grade swatch strip, sport-profile popover,
-   settings screen with profile editor (→ Session UI)
+2. **Redesign leftovers** — home page style pass; delete superseded screens
+   (`load.py`, `scan.py`, `pick.py`, `cut.py`, `save.py`)
 
 Done: installable app — v0.1.4 released with AppImage / Setup.exe / dmg via
-GitHub Releases. UI redesign v2 shipped in the same release.
+GitHub Releases; UI redesign v2 in the same release; Session UI follow-ups
+(grade swatches, profile popover, settings screen) shipped 2026-06-12.
 Demoted: CLI refactor to the event-based backend — revisit if/when power users
 appear (→ CLI — power users).
 
@@ -38,13 +39,13 @@ appear (→ CLI — power users).
   selector listing what the active profile actually sets.~~ Shipped: shows the three
   wired-in settings (grade, motion threshold, scene detection) with the inert fields
   called out; friendly sport display names added alongside (storage keys unchanged).
-- [ ] **Settings screen** (decided 2026-06-11) — the sidebar's "Settings (soon)" entry
-  becomes real. Two parts:
-  - Preferences: default sport, default grade, default scan method (quick/full),
-    default export aspects + output folder. Needs a small key/value settings store
-    (table or JSON in the config dir).
-  - **Edit profiles**: edit all per-sport `Profile` fields (the popover list above)
-    with a reset-to-defaults action per profile (defaults live in `presets/sports.py`).
+- [x] ~~**Settings screen** (decided 2026-06-11) — preferences + per-sport profile
+  editor with reset.~~ Shipped: `/settings` page; preferences in the new
+  `app_settings` DB table (consumed as session-page defaults), profile editor with
+  save-as-DB-row / reset-deletes-row semantics.
+- [ ] **Custom sports (full profile CRUD)** — add/rename/delete sports beyond the seven
+  built-ins. Same Profile table, no new storage; mainly UI + a guard against deleting a
+  sport that sessions reference. Deferred 2026-06-12 as not yet needed.
 
 ---
 

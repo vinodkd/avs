@@ -155,3 +155,14 @@ class Export(Base):
     duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="exports")
+
+
+class AppSetting(Base):
+    """App-level key/value settings (UI preferences). Values are JSON-encoded."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str]   = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<AppSetting {self.key}={self.value}>"

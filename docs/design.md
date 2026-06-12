@@ -284,6 +284,14 @@ CREATE TABLE exports (
     aspect      TEXT NOT NULL,                 -- '16:9' | '9:16'
     duration_s  REAL
 );
+
+-- App-level UI preferences (default sport/grade/scan method, export defaults).
+-- One row per key, JSON-encoded value. Stored in the DB (not a config file) so
+-- all app state lives in one place. Accessed via axedup/prefs.py.
+CREATE TABLE app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ```
 
 ---
@@ -625,9 +633,22 @@ Assembly falls back to CANDIDATE marks if no ACCEPTED marks exist (user skipped 
 
 Platform tiles (YouTube, Instagram), per-platform metadata, auth flow. Not implemented.
 
-### Settings screen (backlog)
+### Settings screen (`/settings`)
 
-Preferences (default sport/grade/scan method/export aspects/output folder) + sport profile editor with reset-to-defaults; global cache dir, custom FFmpeg path. See `docs/backlog.md` → Session UI.
+Two cards:
+
+- **Preferences** — default sport, default grade, default scan method, export
+  aspects, output folder. Stored in the `app_settings` table via `axedup/prefs.py`;
+  consumed by the session page as pre-selected values.
+- **Sport profiles** — per-sport editor over all `Profile` fields, split into
+  "used by the pipeline" (grade, motion threshold, scene detection) and "stored but
+  not used yet" (music energy, clip bounds, targets, overlays, speed threshold).
+  Save upserts the sport's DB row; Reset deletes it so the built-in defaults in
+  `presets/sports.py` apply again (row exists = customised, no row = defaults —
+  the same fallback the pipeline uses). Adding custom sports is deferred
+  (backlog → "Custom sports").
+
+Still possible later: global cache dir, custom FFmpeg path.
 
 ---
 

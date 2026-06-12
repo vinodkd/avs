@@ -10,7 +10,7 @@ _NAV_ITEMS = [
     # (item_id, label, material-icon, url-or-None)
     ('home',     'Home',         'home',       '__home__'),
     ('session',  'Current edit', 'movie_edit',  '__session__'),
-    ('settings', 'Settings',     'settings',    None),
+    ('settings', 'Settings',     'settings',    '/settings'),
 ]
 
 
@@ -43,9 +43,9 @@ def sidebar(active: str, session_id: str | None = None, status: str | None = Non
 
         for item_id, label, icon, url in items:
             is_active = item_id == active
-            is_future = item_id == 'settings'
+            is_future = False
             has_link  = item_id == 'session' and session_id
-            clickable = url is not None and not is_future and not is_active
+            clickable = url is not None and not is_active
 
             color  = '#ffffff' if is_active else ('#5a9a5a' if has_link else ('#383838' if is_future else '#666'))
             weight = '600' if is_active else '400'

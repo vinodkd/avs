@@ -36,6 +36,7 @@ from axedup.models.db import get_session as db_session
 from axedup.models.schema import (
     Clip, Export, Mark, MarkStatus, Profile, Session, SessionStatus, TelemetryPoint,
 )
+from axedup.prefs import get_prefs
 from axedup.presets.sports import display_name
 from axedup.ui import state
 from axedup.ui.state import StageState
@@ -440,6 +441,7 @@ def _do_delete(session_id: str) -> None:
 def session_page(session_id: str) -> None:
     ui.dark_mode().enable()
     ui.add_head_html(f'<style>{_CSS}</style>')
+    _prefs = get_prefs()
     # Block the webview's default file-drop behavior — without this, dropping a
     # video onto the window navigates away from the app to fullscreen playback.
     ui.add_head_html(
@@ -461,7 +463,7 @@ def session_page(session_id: str) -> None:
         has_motion_data = post_analysis = False
         preview_path = Path('/nonexistent/_preview.mp4')
         still_path   = Path('/nonexistent/_still.jpg')
-        detect_method_ref = ['proxy']
+        detect_method_ref = [_prefs['default_scan_method']]
         with db_session() as db:
             sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
     else:
@@ -519,7 +521,7 @@ def session_page(session_id: str) -> None:
 
         preview_path = config.PREVIEW_DIR / f'{session_id}_preview.mp4'
         still_path   = config.STILL_DIR / f'{session_id}_still.jpg'
-        detect_method_ref = [_pending_methods.get(session_id, 'proxy')]
+        detect_method_ref = [_pending_methods.get(session_id, _prefs['default_scan_method'])]
 
     # ── Stage status ───────────────────────────────────────────────────────────
 
@@ -651,7 +653,8 @@ def session_page(session_id: str) -> None:
     _new_files:    list = []
 
     # combine refs
-    _combine_grade_val  = ['natural']
+    _combine_grade_val  = [_prefs['default_grade']
+                           if _prefs['default_grade'] in _GRADES else 'natural']
     _combine_source_val = ['All accepted']
     _swatch_row_ref     = [None]
     _swatch_built       = [False]
@@ -661,9 +664,9 @@ def session_page(session_id: str) -> None:
     _tag_before_preview = [None]
 
     # export refs
-    _export_a16_val    = [True]
-    _export_a9_val     = [False]
-    _export_outdir_val = [str(config.OUTPUT_DIR)]
+    _export_a16_val    = [bool(_prefs['export_16_9'])]
+    _export_a9_val     = [bool(_prefs['export_9_16'])]
+    _export_outdir_val = [_prefs['output_dir'] or str(config.OUTPUT_DIR)]
     _export_ctl_refs:  list = []
 
     # ── Sidebar — starts collapsed on session pages ────────────────────────────
@@ -889,7 +892,9 @@ def session_page(session_id: str) -> None:
                             _new_hint_ref[0] = _hl
                             _ss = ui.select(
                                 options={s: display_name(s) for s in sports},
-                                value=sports[0] if sports else 'unknown',
+                                value=(_prefs['default_sport']
+                                       if _prefs['default_sport'] in sports
+                                       else (sports[0] if sports else 'unknown')),
                                 label='Sport',
                             ).style('min-width:140px')
                             _new_sport_ref[0] = _ss
