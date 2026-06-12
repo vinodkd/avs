@@ -11,11 +11,11 @@ Routes: /session/{session_id}  (existing session)
   │                  │  Video player area                   │
   │  Select video    │  EMPTY | PREVIEW | REVIEW | OUTPUT   │
   │  Trim video      │                                      │
-  │    Working copy… │                                      │
-  │    Detecting…    │                                      │
-  │    Finding…      │                                      │
+  │    Create copy   │                                      │
+  │    Detect scenes │                                      │
+  │    Find clips    │                                      │
   │    Select clips  │                                      │
-  │    Combining…    ├──────────────────────────────────────┤
+  │    Combine clips ├──────────────────────────────────────┤
   │  [Add text]      │  (REVIEW: timeline + thumbnail       │
   │  [Add music]     │   cards below the player)            │
   │  Export          │                                      │
@@ -98,7 +98,7 @@ _CSS = """
 .ax2-section.done{color:#3aaa3a}
 .ax2-section.future{color:#333;font-style:italic}
 
-/* Sub-rows (Working copy…, Detecting scenes…, etc.) */
+/* Sub-rows (Create working copy, Detect scenes, etc.) */
 .ax2-sub{
   display:grid;grid-template-columns:12px 1fr 44px 52px 40px;
   align-items:center;gap:0.3rem;
@@ -799,14 +799,14 @@ def session_page(session_id: str) -> None:
                 _n_prox_done = sum(
                     1 for cid in clip_ids if (config.PROXY_DIR / f'{cid}.mp4').exists()
                 )
-                _sub_row('proxy', 'Creating working copy…', _est_str['proxy'], _init_act('proxy'),
+                _sub_row('proxy', 'Create working copy', _est_str['proxy'], _init_act('proxy'),
                          f'{_n_prox_done}/{len(clip_ids)}' if clip_ids and not all_proxies_done
                          else (str(len(clip_ids)) if clip_ids else ''))
 
-                _sub_row('scan', 'Detecting scenes…', _est_str['scan'], _init_act('scan'),
+                _sub_row('scan', 'Detect scenes', _est_str['scan'], _init_act('scan'),
                          str(len(clip_ids)) if has_motion_data else '')
 
-                _sub_row('highlights', 'Finding clips…', _est_str['highlights'], _init_act('highlights'),
+                _sub_row('highlights', 'Find clips', _est_str['highlights'], _init_act('highlights'),
                          str(len(mark_data)) if mark_data else '')
 
                 _n_acc = len(mark_data) - len(rejected_ids)
@@ -815,7 +815,7 @@ def session_page(session_id: str) -> None:
                          '', '',
                          f'{_n_acc}·{_n_rej}' if mark_data else '')
 
-                _sub_row('combine', 'Combining clips…', _est_str['combine'], _init_act('combine'), '')
+                _sub_row('combine', 'Combine clips', _est_str['combine'], _init_act('combine'), '')
 
                 # ── Future steps ───────────────────────────────────────────────
                 with ui.element('div').classes('ax2-section future'):
@@ -833,7 +833,7 @@ def session_page(session_id: str) -> None:
                     row_refs['export'] = _row_export
                     _ex_dot = ui.html(_dot_html(_ex_st), sanitize=False, tag='span')
                     dot_refs['export'] = _ex_dot
-                    ui.label('Exporting video…').style('flex:1')
+                    ui.label('Export video').style('flex:1')
                     ui.label(_est_str['export']).classes('ax2-sec-est')
                     _ex_a = ui.label(_init_act('export')).classes('ax2-sec-act')
                     act_refs['export'] = _ex_a
