@@ -4,10 +4,9 @@
 
 The prototype phase is complete. The full pipeline runs end-to-end: ingest → proxy → scan → peaks → pick → combine → export. The NiceGUI desktop UI is the primary interface. The CLI exists but is behind the UI in capability and needs refactoring to match the current backend.
 
-Next priorities (in order):
-1. **Installable app** — PyInstaller + AppImage packaging for Linux, GitHub Releases distribution
-2. **CLI refactor** — bring `cli.py` in line with the current pipeline (on_event callbacks, session status, separate scan/peaks steps)
-3. **Signal enrichment** — audio spike detection, combined scoring (motion + telemetry + audio), boring-region flagging
+Priorities and pending work live in **`docs/backlog.md`** — that file is the source
+of truth (see its "Current priorities" section). Keep it updated as work lands;
+do not duplicate the list here.
 
 ## Project Overview
 
@@ -60,7 +59,7 @@ run.py              — convenience entry point
 - **Motion analysis:** OpenCV (cv2)
 - **Database:** SQLite via SQLAlchemy + Alembic
 - **LLM (future):** Ollama (separate install) + `ollama` Python client
-- **Packaging:** PyInstaller + AppImage (Linux), GitHub Releases — in progress
+- **Packaging:** PyInstaller — AppImage (Linux), Setup.exe (Windows), dmg (macOS) via GitHub Releases on `v*` tags
 - **No GPU assumed** — all processing runs on CPU only
 - **No FastAPI, no React** — decided against; too heavy
 

@@ -1,6 +1,21 @@
 # AxEdUp — Backlog
 
-Struck-through items are committed.
+Source of truth for priorities and pending work. Struck-through items are committed.
+
+---
+
+## Current priorities (in order)
+
+1. **Signal enrichment** — audio spike detection, combined scoring (motion +
+   telemetry + audio), boring-region flagging, manual mark creation
+   (→ Review / clip selection, Analysis pipeline → Audio scoring)
+2. **Session UI follow-ups** — grade swatch strip, sport-profile popover,
+   settings screen with profile editor (→ Session UI)
+
+Done: installable app — v0.1.4 released with AppImage / Setup.exe / dmg via
+GitHub Releases. UI redesign v2 shipped in the same release.
+Demoted: CLI refactor to the event-based backend — revisit if/when power users
+appear (→ CLI — power users).
 
 ---
 
@@ -44,12 +59,14 @@ Struck-through items are committed.
   - [ ] Run WebRTC VAD on proxy audio to detect speech segments
   - [ ] Boost peak score for segments containing speech
   - [ ] Optional: `faster-whisper` transcription for keyword search
-- [ ] Optical flow optimisation (`--jpg` / `--proxy` flag on `analyze`)
-  - [ ] Extract sample frames as JPEGs via ffmpeg (`fps=2`) instead of decoding every frame
-  - [ ] Run Farneback on JPEG pairs — ~15× faster for sparse sampling
-  - [ ] Store results in `motion_intensity_quick` (separate from proxy `motion_intensity`)
-  - [ ] Peak detection runs per-method, marks tagged `motion_peak_proxy` vs `motion_peak_jpg`
-  - [ ] Review shows two sections when both sets of marks exist
+- [x] ~~Optical flow optimisation (`--jpg` / `--proxy` flag on `analyze`)~~ — shipped
+  as the Quick (1fps) / Full scan method
+  - [x] ~~Extract sample frames as JPEGs via ffmpeg (`fps=2`) instead of decoding every frame~~
+  - [x] ~~Run Farneback on JPEG pairs — ~15× faster for sparse sampling~~
+  - [x] ~~Store results in `motion_intensity_quick` (separate from proxy `motion_intensity`)~~
+  - [x] ~~Peak detection runs per-method, marks tagged `motion_peak_proxy` vs `motion_peak_jpg`~~
+  - [x] ~~Review shows two sections when both sets of marks exist~~ — superseded: one
+    review set; Combine has a source filter (all / still-frame picks / motion picks)
 
 - [ ] Pipeline timing
   - [ ] Add `analyzed_at`, `assembled_at`, `exported_at` timestamps to `Session`
@@ -78,7 +95,7 @@ Struck-through items are committed.
   - [x] ~~Parallel segment encoding (4 workers)~~
   - [x] ~~Validate encoded segment cache before use (ffprobe check, delete corrupt files)~~
 - [ ] Progress and estimates
-  - [ ] Progress bar for segment encoding (N of M segments)
+  - [x] ~~Progress bar for segment encoding (N of M segments)~~ — combine bar in the UI
   - [x] ~~Progress bar and time estimate for export encode (ffmpeg pipe → `out_time_ms`)~~
 - [ ] Cleanup
   - [ ] Delete `segments/encoded/` after successful export (grade is baked in, stale on grade change)
@@ -104,6 +121,16 @@ Struck-through items are committed.
 
 ---
 
+## Tooling / CI
+
+- [ ] **Bump GitHub Actions to Node 24-compatible versions** — v0.1.4 release run
+  warned that `actions/checkout@v4`, `actions/setup-python@v5`, and
+  `softprops/action-gh-release@v2` run on deprecated Node 20; GitHub forces Node 24
+  from 2026-06-16 (removal 2026-09-16). Update pins in `release.yml` (and check
+  `pages.yml`) before the next release.
+
+---
+
 ## Pending decisions
 
 - [ ] GoPro chapter joining — virtual join at assembly vs physical join at ingest
@@ -115,12 +142,29 @@ Struck-through items are committed.
 
 ## Phase 2 — NiceGUI UI
 
-- [ ] Import screen (folder/SD picker, sport selector)
+Superseded by UI redesign v2 (shipped in v0.1.4): the session page covers import
+(EMPTY mode), review (REVIEW mode with timeline + cards), and export (options bar).
+Kept struck-through for history; footage map remains the one open idea.
+
+- [x] ~~Import screen (folder/SD picker, sport selector)~~
 - [ ] Footage Map screen (thumbnail strip, telemetry graph, scene markers)
-- [ ] Clip Marks screen (card-based accept/reject/trim)
-- [ ] Review Player screen (inline video, coarse refinement controls)
-- [ ] Export screen (aspect ratio selector, progress, output path)
-- [ ] Replace review HTML temp-file polling with NiceGUI event handler
+- [x] ~~Clip Marks screen (card-based accept/reject/trim)~~
+- [x] ~~Review Player screen (inline video, coarse refinement controls)~~
+- [x] ~~Export screen (aspect ratio selector, progress, output path)~~
+
+---
+
+## CLI — power users (low priority)
+
+The NiceGUI app is the primary interface. Revisit this if/when power users appear.
+
+- [ ] **Refactor `cli.py` to the event-based backend** — the pipeline now exposes
+  `on_event`/`on_progress` callbacks, separate proxy/scan/peaks steps, shared task
+  state, and session statuses driven by the UI; `cli.py` still calls the older
+  combined entry points. Bring it in line: progress output from `on_event`,
+  separate analyze steps, status-aware resume.
+  - [ ] Replace review HTML temp-file polling (`processing/review.py`) with the
+    NiceGUI review flow or an event-based equivalent
 
 ---
 
