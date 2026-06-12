@@ -23,7 +23,15 @@ appear (→ CLI — power users).
 ## Review / clip selection
 
 - [ ] **Manual mark creation from dead zones** — gaps between system-detected marks in the timeline should be clickable and draggable to create a new mark. User should be able to include footage the system didn't flag. (Prerequisite for boring-region feature below.)
-- [ ] **Boring-region detection and auto-rejection** — flag segments where all signals (motion, audio, telemetry) are below threshold as `MarkStatus.BORING`. These appear as a third bucket in the Select clips count ("9 in · 3 out · 4 skipped"). User can override any boring-flagged segment by clicking it in the timeline to include it. Boring regions are visually distinct (e.g. hatched or dimmed) but still interactive.
+- [x] ~~**Boring-region detection and auto-rejection** — flag low-motion segments as
+  `MarkStatus.BORING`, third bucket in counts, user-overridable from the timeline.~~
+  Shipped 2026-06-12: motion-based detection in `peaks.py` (smoothed motion below a
+  % of the sport motion threshold, sustained, gap-tolerant; highlight windows are
+  never flagged). Amber hatched bars / yellow cards with z badge; click cycles
+  skip↔include (never red). Thresholds are global settings (Settings → Boring-region
+  detection). Timeline dark gaps remain by design: footage that is neither highlight
+  nor confidently boring — see manual mark creation above for making them actionable.
+  Audio/telemetry signals will join the scoring later (Analysis pipeline → Audio scoring).
 
 ---
 

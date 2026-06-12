@@ -13,6 +13,11 @@ DEFAULTS: dict = {
     "export_16_9": True,
     "export_9_16": False,
     "output_dir": "",                 # empty = config.OUTPUT_DIR
+    # Boring-region detection (global; per-profile overrides only if usage
+    # shows sports need different tolerances)
+    "boring_threshold_pct": 35,       # dull = motion < pct% of sport motion_threshold
+    "boring_min_s": 8.0,              # dull stretches shorter than this are pacing, not boredom
+    "boring_gap_s": 2.0,              # blips above the line shorter than this don't break a region
 }
 
 

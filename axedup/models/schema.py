@@ -25,6 +25,7 @@ class MarkStatus(str, enum.Enum):
     CANDIDATE = "candidate"
     ACCEPTED  = "accepted"
     REJECTED  = "rejected"
+    BORING    = "boring"     # system-flagged low-activity span; user can rescue
 
 
 def _uuid() -> str:

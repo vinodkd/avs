@@ -269,7 +269,20 @@ def _bar_html(s: StageState, label: str, stage: str, method: str = 'proxy') -> s
     )
 
 
-def _timeline_html(mark_data: list, clip_info: list) -> str:
+# Visuals per review state: (bar/border colour, hatch background-image, badge icon)
+_PICK_STYLE = {
+    'in':   ('#2a7a2a', 'none', '✓'),
+    'out':  ('#7a2a2a',
+             'repeating-linear-gradient(-45deg,transparent,transparent 3px,'
+             'rgba(0,0,0,0.35) 3px,rgba(0,0,0,0.35) 4px)', '✗'),
+    'skip': ('#8a6a18',
+             'repeating-linear-gradient(45deg,transparent,transparent 4px,'
+             'rgba(0,0,0,0.3) 4px,rgba(0,0,0,0.3) 6px)', 'z'),
+}
+
+
+def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = None) -> str:
+    statuses = statuses or {}
     marks_by_clip: dict = {}
     for mid, cid, in_s, out_s, *_ in mark_data:
         marks_by_clip.setdefault(cid, []).append((mid, in_s, out_s))
@@ -313,16 +326,21 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
         for mid, in_s, out_s in marks_by_clip.get(cid, []):
             ip = in_s / dur_s * 100
             wp = (out_s - in_s) / dur_s * 100
+            st = statuses.get(mid, 'in')
+            color, hatch, icon = _PICK_STYLE[st]
             tip = f'{_tsfmt(in_s)}–{_tsfmt(out_s)} ({out_s-in_s:.1f}s)'
+            if st == 'skip':
+                tip += ' — flagged boring, click to include'
             out.append(
                 f'<div id="mark-{mid}" data-mid="{mid}" data-cid="{cid}" data-ins="{in_s}"'
                 f' style="position:absolute;top:15px;left:{ip:.2f}%;'
-                f'width:max({max(wp,2):.2f}%,40px);bottom:2px;background:#2a7a2a;'
+                f'width:max({max(wp,2):.2f}%,40px);bottom:2px;background:{color};'
+                f'background-image:{hatch};'
                 f'border-radius:2px;cursor:pointer;transition:background 0.15s;'
                 f'display:flex;align-items:center;justify-content:center;overflow:hidden"'
                 f' onclick="axedupMarkClick(this)" title="{tip}">'
                 f'<span class="mark-icon" style="font-size:0.45rem;color:rgba(255,255,255,0.85);'
-                f'pointer-events:none">✓</span></div>'
+                f'pointer-events:none">{icon}</span></div>'
             )
         out.append('</div>')
         clip_start += dur_s
@@ -459,6 +477,7 @@ def session_page(session_id: str) -> None:
         clip_ids = clip_info = mark_data = []
         total_s = 0.0
         rejected_ids: set = set()
+        boring_ids: set = set()
         all_proxies_done = proxy_running = scan_running = highlights_running = False
         has_motion_data = post_analysis = False
         preview_path = Path('/nonexistent/_preview.mp4')
@@ -484,12 +503,14 @@ def session_page(session_id: str) -> None:
                 db.query(Mark)
                 .join(Clip, Mark.clip_id == Clip.id)
                 .filter(Mark.clip_id.in_(clip_ids))
-                .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED, MarkStatus.REJECTED]))
+                .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED,
+                                         MarkStatus.REJECTED, MarkStatus.BORING]))
                 .order_by(Clip.clip_order, Mark.in_s)
                 .all()
             ) if clip_ids else []
             mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
             rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
+            boring_ids   = {m.id for m in marks_all if m.status == MarkStatus.BORING}
             sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
 
         proxy_task      = state.get_task(f'{session_id}_proxy')
@@ -522,6 +543,12 @@ def session_page(session_id: str) -> None:
         preview_path = config.PREVIEW_DIR / f'{session_id}_preview.mp4'
         still_path   = config.STILL_DIR / f'{session_id}_still.jpg'
         detect_method_ref = [_pending_methods.get(session_id, _prefs['default_scan_method'])]
+
+    # Review state per mark: 'in' | 'out' | 'skip' (system-flagged boring)
+    _statuses = {
+        mid: ('out' if mid in rejected_ids else 'skip' if mid in boring_ids else 'in')
+        for mid, *_ in mark_data
+    }
 
     # ── Stage status ───────────────────────────────────────────────────────────
 
@@ -809,14 +836,18 @@ def session_page(session_id: str) -> None:
                 _sub_row('scan', 'Detect scenes', _est_str['scan'], _init_act('scan'),
                          str(len(clip_ids)) if has_motion_data else '')
 
-                _sub_row('highlights', 'Find clips', _est_str['highlights'], _init_act('highlights'),
-                         str(len(mark_data)) if mark_data else '')
+                _n_in   = sum(1 for s in _statuses.values() if s == 'in')
+                _n_out  = sum(1 for s in _statuses.values() if s == 'out')
+                _n_skip = sum(1 for s in _statuses.values() if s == 'skip')
+                _n_found = len(mark_data) - len(boring_ids)
 
-                _n_acc = len(mark_data) - len(rejected_ids)
-                _n_rej = len(rejected_ids)
+                _sub_row('highlights', 'Find clips', _est_str['highlights'], _init_act('highlights'),
+                         str(_n_found) if mark_data else '')
+
                 _sub_row('pick', 'Select clips',
                          '', '',
-                         f'{_n_acc}·{_n_rej}' if mark_data else '')
+                         (f'{_n_in}·{_n_out}·{_n_skip}' if boring_ids
+                          else f'{_n_in}·{_n_out}') if mark_data else '')
 
                 _sub_row('combine', 'Combine clips', _est_str['combine'], _init_act('combine'), '')
 
@@ -1047,7 +1078,7 @@ def session_page(session_id: str) -> None:
                 with ui.element('div').classes('ax2-review-panel') as _review_panel:
                     review_panel_ref[0] = _review_panel
                     _tl = ui.html(
-                        _timeline_html(mark_data, clip_info) if mark_data else '',
+                        _timeline_html(mark_data, clip_info, _statuses) if mark_data else '',
                         sanitize=False,
                     ).style('width:100%;height:68px;flex-shrink:0;display:block;'
                             'padding:4px 6px;box-sizing:border-box')
@@ -1278,10 +1309,12 @@ def session_page(session_id: str) -> None:
             _ab_status.set_text(f'{len(mark_data)} clips found' if mark_data else '')
         elif stage == 'pick':
             if review_mode[0]:
-                n_acc2 = len(mark_data) - len(rejected_ids)
-                n_rej2 = len(rejected_ids)
+                n_in2   = sum(1 for s in _statuses.values() if s == 'in')
+                n_out2  = sum(1 for s in _statuses.values() if s == 'out')
+                n_skip2 = sum(1 for s in _statuses.values() if s == 'skip')
                 _set_next_btn('Save & combine clips →', bool(mark_data), _save_and_combine)
-                _ab_status.set_text(f'{n_acc2} in · {n_rej2} out')
+                _ab_status.set_text(f'{n_in2} in · {n_out2} out'
+                                    + (f' · {n_skip2} skipped' if boring_ids else ''))
             else:
                 can_review = post_analysis and bool(mark_data) and not combining_lock[0]
                 _set_next_btn('Review clips →', can_review, _enter_review)
@@ -1315,7 +1348,7 @@ def session_page(session_id: str) -> None:
         rp = review_panel_ref[0]
         if rp: rp.classes(add='visible')
         if tl_html_ref[0]:
-            tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info) if mark_data else '')
+            tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info, _statuses) if mark_data else '')
         if cards_html_ref[0]:
             cards_html_ref[0].set_content(_build_cards_html())
         _update_action_bar_for_stage('pick')
@@ -1338,11 +1371,11 @@ def session_page(session_id: str) -> None:
                 '<div style="width:100%;height:60px;background:#111"></div>'
             )
             ts_label = f'{_tsfmt(in_s)}–{_tsfmt(out_s)}'
-            accepted = mid not in rejected_ids
-            bc = '#2a7a2a' if accepted else '#7a2a2a'
-            bi = '✓' if accepted else '✗'
+            st = _statuses.get(mid, 'in')
+            bc, _, bi = _PICK_STYLE[st]
+            hint = ' title="Flagged boring — click to include"' if st == 'skip' else ''
             parts.append(
-                f'<div id="card-{mid}" onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})" '
+                f'<div id="card-{mid}" onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})"{hint} '
                 f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
                 f'cursor:pointer;border:2px solid {bc};flex-shrink:0;position:relative">'
                 f'{img_part}'
@@ -1359,48 +1392,74 @@ def session_page(session_id: str) -> None:
         return ''.join(parts)
 
     def _init_pick_js() -> None:
-        init = {mid: (mid not in rejected_ids) for mid, *_ in mark_data}
+        # Decisions are 'in' | 'out' | 'skip'. Boring-origin marks cycle
+        # in↔skip (never red); normal marks cycle in↔out.
+        boring_origin = {mid: True for mid, _, _, _, _, src in mark_data
+                         if src == 'boring_motion'}
         pick_count_id = f'c{count_refs["pick"].id}' if 'pick' in count_refs else ''
+        styles_js = json.dumps({st: {'c': c, 'img': img, 'icon': icon}
+                                for st, (c, img, icon) in _PICK_STYLE.items()})
         ui.run_javascript(f'''
-window.axedup_decisions = {json.dumps(init)};
+window.axedup_decisions = {json.dumps(_statuses)};
+window.axedup_boring = {json.dumps(boring_origin)};
+var _AX_STYLES = {styles_js};
 
-function _axedupToggle(mid, ok) {{
-  window.axedup_decisions[mid] = ok;
+function _axedupSet(mid, st) {{
+  window.axedup_decisions[mid] = st;
+  var s = _AX_STYLES[st];
   var card = document.getElementById("card-" + mid);
-  if (card) card.style.borderColor = ok ? "#2a7a2a" : "#7a2a2a";
+  if (card) card.style.borderColor = s.c;
   var badge = document.getElementById("card-badge-" + mid);
-  if (badge) {{ badge.style.background = ok ? "#2a7a2a" : "#7a2a2a"; badge.textContent = ok ? "✓" : "✗"; }}
+  if (badge) {{ badge.style.background = s.c; badge.textContent = s.icon; }}
   var bar = document.getElementById("mark-" + mid);
   if (bar) {{
-    bar.style.background = ok ? "#2a7a2a" : "#7a2a2a";
-    bar.style.backgroundImage = ok ? "none"
-      : "repeating-linear-gradient(-45deg,transparent,transparent 3px,rgba(0,0,0,0.35) 3px,rgba(0,0,0,0.35) 4px)";
+    bar.style.background = s.c;
+    bar.style.backgroundImage = s.img;
     var ico = bar.querySelector("span.mark-icon");
-    if (ico) ico.textContent = ok ? "✓" : "✗";
+    if (ico) ico.textContent = s.icon;
   }}
-  var acc = Object.values(window.axedup_decisions).filter(Boolean).length;
-  var s = document.getElementById("{pick_count_id}");
-  if (s) s.textContent = acc + "·" + (Object.keys(window.axedup_decisions).length - acc);
+  var n = {{'in': 0, 'out': 0, 'skip': 0}};
+  Object.values(window.axedup_decisions).forEach(function(v) {{ n[v] += 1; }});
+  var anySkip = Object.keys(window.axedup_boring).length > 0;
+  var el = document.getElementById("{pick_count_id}");
+  if (el) el.textContent = n['in'] + "\\u00b7" + n['out'] + (anySkip ? "\\u00b7" + n['skip'] : "");
+}}
+
+function _axedupCycle(mid) {{
+  var cur = window.axedup_decisions[mid];
+  var next = window.axedup_boring[mid] ? (cur === "skip" ? "in" : "skip")
+                                       : (cur === "in" ? "out" : "in");
+  _axedupSet(mid, next);
 }}
 
 function _axedupSeek(cid, ins) {{
   var v = document.getElementById("main-player");
   if (!v) return;
+  v.style.display = "block";
+  var st = document.getElementById("player-still");
+  if (st) st.style.display = "none";
+  var ph = document.getElementById("player-ph");
+  if (ph) ph.style.display = "none";
   var url = "/proxies/" + cid + ".mp4";
-  if (!v.src.endsWith(url)) {{ v.src = url; v.load(); }}
-  var seek = function() {{ v.currentTime = ins; v.play().catch(function(){{}}); }};
-  if (v.readyState >= 1) seek();
-  else v.addEventListener("loadedmetadata", seek, {{once:true}});
+  var sameSrc = v.src && v.src.indexOf(url) !== -1;
+  if (!sameSrc) {{ v.src = url; v.load(); }}
+  // play() must run synchronously inside the click gesture — WebKitGTK blocks
+  // unmuted play() issued later from loadedmetadata (gesture context is gone).
+  var p = v.play();
+  if (p && p.catch) p.catch(function() {{ v.muted = true; v.play().catch(function(){{}}); }});
+  var seekTo = function() {{ try {{ v.currentTime = ins; }} catch (e) {{}} }};
+  if (sameSrc && v.readyState >= 1) seekTo();
+  else v.addEventListener("loadedmetadata", seekTo, {{once: true}});
 }}
 
 window.axedupMarkClick = function(el) {{
   var mid = el.dataset.mid, cid = el.dataset.cid, ins = parseFloat(el.dataset.ins);
-  _axedupToggle(mid, !window.axedup_decisions[mid]);
+  _axedupCycle(mid);
   _axedupSeek(cid, ins);
 }};
 
 window.axedupCardClick = function(mid, cid, ins) {{
-  _axedupToggle(mid, !window.axedup_decisions[mid]);
+  _axedupCycle(mid);
   _axedupSeek(cid, ins);
 }};
 ''')
@@ -1425,11 +1484,12 @@ window.axedupCardClick = function(mid, cid, ins) {{
         def _run():
             try:
                 from axedup.processing.analysis import run_motion_scan, extract_mark_thumbnails
-                from axedup.processing.peaks import detect_peaks
+                from axedup.processing.peaks import detect_peaks, detect_boring_regions
                 run_motion_scan(session_id, motion_method=method, on_event=_on_event)
                 state.finish_task(f'{session_id}_scan')
                 state.start_task(f'{session_id}_highlights')
                 detect_peaks(session_id, on_event=_on_event, motion_method=method)
+                detect_boring_regions(session_id, on_event=_on_event, motion_method=method)
                 state.finish_task(f'{session_id}_highlights')
                 with db_session() as _db:
                     _s = _db.query(Session).filter(Session.id == session_id).first()
@@ -1451,15 +1511,20 @@ window.axedupCardClick = function(mid, cid, ins) {{
     async def _save_and_combine() -> None:
         raw = await ui.run_javascript('JSON.stringify(window.axedup_decisions || {})')
         js_dec = json.loads(raw)
-        acc = rej = 0
+        _to_status = {'in': MarkStatus.ACCEPTED, 'out': MarkStatus.REJECTED,
+                      'skip': MarkStatus.BORING}
+        counts = {'in': 0, 'out': 0, 'skip': 0}
         with db_session() as db2:
-            for mid2, keep in js_dec.items():
+            for mid2, st in js_dec.items():
                 m2 = db2.query(Mark).filter(Mark.id == mid2).first()
-                if m2:
-                    m2.status = MarkStatus.ACCEPTED if keep else MarkStatus.REJECTED
-                    if keep: acc += 1
-                    else:    rej += 1
-        ui.notify(f'Saved: {acc} in, {rej} out', type='positive')
+                if m2 and st in _to_status:
+                    m2.status = _to_status[st]
+                    counts[st] += 1
+        _statuses.update({m: s for m, s in js_dec.items() if s in _to_status})
+        msg = f'Saved: {counts["in"]} in, {counts["out"]} out'
+        if counts['skip']:
+            msg += f', {counts["skip"]} skipped'
+        ui.notify(msg, type='positive')
         _exit_review()
         _update_action_bar_for_stage('combine')
 
@@ -1608,7 +1673,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
     if not is_new:
         _update_action_bar_for_stage(initial_stage)
         if post_analysis and mark_data and tl_html_ref[0]:
-            tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info))
+            tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info, _statuses))
 
     # ── Elapsed timer ──────────────────────────────────────────────────────────
     def _elapsed_tick() -> None:
@@ -1698,7 +1763,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
             with db_session() as _db2:
                 if clip_ids:
                     n_marks = _db2.query(Mark).join(Clip, Mark.clip_id == Clip.id).filter(
-                        Mark.clip_id.in_(clip_ids)
+                        Mark.clip_id.in_(clip_ids),
+                        Mark.status != MarkStatus.BORING,
                     ).count()
             if 'highlights' in count_refs and n_marks:
                 count_refs['highlights'].set_text(str(n_marks))

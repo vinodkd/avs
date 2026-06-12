@@ -83,6 +83,21 @@ def settings_page() -> None:
                                   placeholder=str(config.OUTPUT_DIR),
                                   value=prefs['output_dir']).style('min-width:280px;flex:1')
 
+            ui.label('Boring-region detection').style(
+                'color:#999;font-size:0.78rem;font-weight:600;margin-top:0.7rem'
+            )
+            ui.label('A span is skipped when motion stays below the threshold for the '
+                     'minimum duration; brief blips within the gap tolerance are ignored. '
+                     'Skipped spans can always be rescued in review.').style(_SUB)
+            with ui.row().style('gap:1rem;flex-wrap:wrap;align-items:center'):
+                _p_bpct = ui.number(label='Threshold (% of sport motion threshold)',
+                                    min=5, max=95, step=5,
+                                    value=prefs['boring_threshold_pct']).style('width:250px')
+                _p_bmin = ui.number(label='Min duration (s)', min=2.0, step=1.0,
+                                    value=prefs['boring_min_s']).style('width:140px')
+                _p_bgap = ui.number(label='Gap tolerance (s)', min=0.0, step=0.5,
+                                    value=prefs['boring_gap_s']).style('width:140px')
+
             def _save_prefs() -> None:
                 save_prefs({
                     'default_sport': _p_sport.value,
@@ -91,6 +106,9 @@ def settings_page() -> None:
                     'export_16_9': _p_a16.value,
                     'export_9_16': _p_a9.value,
                     'output_dir': (_p_out.value or '').strip(),
+                    'boring_threshold_pct': int(_p_bpct.value or 35),
+                    'boring_min_s': float(_p_bmin.value or 8.0),
+                    'boring_gap_s': float(_p_bgap.value or 2.0),
                 })
                 ui.notify('Preferences saved', type='positive')
 

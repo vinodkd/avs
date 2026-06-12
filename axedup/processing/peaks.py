@@ -186,3 +186,173 @@ def _merge_overlapping(
             merged.append([in_s, out_s, score])
 
     return [(r[0], r[1], r[2]) for r in merged]
+
+
+# ---------------------------------------------------------------------------
+# Boring-region detection
+# ---------------------------------------------------------------------------
+
+BORING_SOURCE = "boring_motion"
+
+
+def detect_boring_regions(
+    session_id: str,
+    on_event=None,
+    motion_method: str = "proxy",
+) -> int:
+    """
+    Flag sustained low-motion spans as Mark rows with status=BORING.
+
+    Reads the same motion series peak detection uses — no new video processing.
+    Thresholds come from global app settings (axedup/prefs.py):
+      boring_threshold_pct — dull = smoothed motion < pct% of the sport's
+                             motion_threshold
+      boring_min_s         — dull stretches shorter than this are ignored
+      boring_gap_s         — blips above the line shorter than this don't
+                             break a region
+    Spans overlapping any non-boring mark are cut around it: found highlights
+    always win. Returns the number of boring marks created.
+    """
+    from axedup.prefs import get_prefs
+
+    _notify = on_event or _NOOP
+    prefs = get_prefs()
+    pct   = float(prefs.get("boring_threshold_pct", 35)) / 100.0
+    min_s = float(prefs.get("boring_min_s", 8.0))
+    gap_s = float(prefs.get("boring_gap_s", 2.0))
+
+    with get_session() as db:
+        session = db.query(Session).filter(Session.id == session_id).first()
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+        profile = db.query(Profile).filter(Profile.sport == session.sport).first()
+        motion_threshold = (
+            profile.motion_threshold
+            if profile and profile.motion_threshold is not None
+            else DEFAULT_PROFILES.get(session.sport, {}).get("motion_threshold", 0.5)
+        )
+        clips = (
+            db.query(Clip)
+            .filter(Clip.session_id == session_id)
+            .order_by(Clip.clip_order)
+            .all()
+        )
+
+    low_bar = motion_threshold * pct
+    total = 0
+    for clip in clips:
+        n = _detect_clip_boring(clip, low_bar, min_s, gap_s, motion_method)
+        _notify(clip.id, 'boring', 'done', f"{clip.filename}: {n} boring span(s)", None, None)
+        total += n
+    return total
+
+
+def _detect_clip_boring(
+    clip: Clip,
+    low_bar: float,
+    min_s: float,
+    gap_s: float,
+    motion_method: str,
+) -> int:
+    col = (TelemetryPoint.motion_intensity_quick if motion_method == "jpg"
+           else TelemetryPoint.motion_intensity)
+    with get_session() as db:
+        # Regenerate on every run, like peak marks
+        db.query(Mark).filter(
+            Mark.clip_id == clip.id,
+            Mark.source == BORING_SOURCE,
+        ).delete()
+        rows = (
+            db.query(TelemetryPoint)
+            .filter(TelemetryPoint.clip_id == clip.id)
+            .filter(col.isnot(None))
+            .order_by(TelemetryPoint.timestamp_s)
+            .all()
+        )
+        values = [(r.timestamp_s,
+                   r.motion_intensity_quick if motion_method == "jpg" else r.motion_intensity)
+                  for r in rows]
+        keep_marks = [
+            (m.in_s, m.out_s) for m in
+            db.query(Mark).filter(Mark.clip_id == clip.id,
+                                  Mark.status != MarkStatus.BORING).all()
+        ]
+
+    if len(values) < 3:
+        return 0
+
+    timestamps = [t for t, _ in values]
+    smoothed   = _rolling_mean([v for _, v in values], window=3)
+
+    regions = _dull_runs(timestamps, smoothed, low_bar, gap_s)
+    regions = [r for r in _subtract_intervals(regions, keep_marks)
+               if r[1] - r[0] >= min_s]
+    if not regions:
+        return 0
+
+    marks = []
+    for in_s, out_s in regions:
+        span = [v for t, v in values if in_s <= t <= out_s]
+        marks.append(Mark(
+            clip_id=clip.id,
+            in_s=round(in_s, 2),
+            out_s=round(min(out_s, clip.duration_s or out_s), 2),
+            score=round(sum(span) / len(span), 4) if span else 0.0,
+            source=BORING_SOURCE,
+            status=MarkStatus.BORING,
+        ))
+    with get_session() as db:
+        db.add_all(marks)
+    return len(marks)
+
+
+def _rolling_mean(values: list[float], window: int = 3) -> list[float]:
+    half = window // 2
+    out = []
+    for i in range(len(values)):
+        lo, hi = max(0, i - half), min(len(values), i + half + 1)
+        out.append(sum(values[lo:hi]) / (hi - lo))
+    return out
+
+
+def _dull_runs(
+    timestamps: list[float],
+    values: list[float],
+    low_bar: float,
+    gap_s: float,
+) -> list[tuple[float, float]]:
+    """Contiguous spans where values stay below low_bar, bridging blips ≤ gap_s."""
+    runs: list[tuple[float, float]] = []
+    start = None
+    last_dull = None
+    for t, v in zip(timestamps, values):
+        if v < low_bar:
+            if start is None:
+                start = t
+            last_dull = t
+        elif start is not None and t - last_dull > gap_s:
+            runs.append((start, last_dull))
+            start = None
+    if start is not None:
+        runs.append((start, last_dull))
+    return runs
+
+
+def _subtract_intervals(
+    regions: list[tuple[float, float]],
+    holes: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Cut *holes* (existing highlight marks) out of *regions*."""
+    out = list(regions)
+    for h_in, h_out in holes:
+        nxt = []
+        for r_in, r_out in out:
+            if h_out <= r_in or h_in >= r_out:
+                nxt.append((r_in, r_out))
+                continue
+            if r_in < h_in:
+                nxt.append((r_in, h_in))
+            if h_out < r_out:
+                nxt.append((h_out, r_out))
+        out = nxt
+    return out

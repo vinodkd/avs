@@ -442,6 +442,24 @@ for each clip:
   write to marks table (status='candidate', source='telemetry_peak'|'motion_peak')
 ```
 
+Boring-region detection (`detect_boring_regions`, same module) runs right after,
+over the same stored motion series — no extra video pass:
+
+```
+low_bar = sport motion_threshold × boring_threshold_pct (global setting)
+smooth series (rolling mean, 3 samples)
+runs = spans where smoothed motion < low_bar, bridging blips ≤ boring_gap_s
+cut out any overlap with non-boring marks (found highlights always win)
+keep runs ≥ boring_min_s → marks (status='boring', source='boring_motion')
+```
+
+Thresholds are global app settings (Settings → Boring-region detection), not code
+constants; per-profile overrides only if usage shows sports need different
+tolerances. In review, boring marks render amber/hatched with a `z` badge and
+cycle skip↔include on click (never red). Combine assembles only accepted marks,
+so skipped spans stay out unless rescued. Timeline dark gaps = footage that is
+neither highlight nor confidently boring (by design).
+
 ### Stage 4 — Review HTML (`cli.py` + `processing/review.py`)
 
 ```

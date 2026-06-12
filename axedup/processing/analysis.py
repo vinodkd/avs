@@ -144,7 +144,8 @@ def extract_mark_thumbnails(session_id: str, on_event: OnEvent | None = None) ->
         with get_session() as db:
             marks = (db.query(Mark)
                      .filter(Mark.clip_id == clip.id)
-                     .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED]))
+                     .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED,
+                                              MarkStatus.BORING]))
                      .order_by(Mark.in_s).all())
         for mark in marks:
             dest = thumb_dir / f"mark_{mark.id}.jpg"
