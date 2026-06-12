@@ -2,6 +2,24 @@
 
 from dataclasses import dataclass
 
+# UI display names. The dict keys (mtb, moto, …) are storage identifiers written
+# into session/profile rows — never rename those; map labels over them instead.
+DISPLAY_NAMES: dict[str, str] = {
+    "mtb":     "Mountain Bike",
+    "moto":    "Motorcycle",
+    "surf":    "Surfing",
+    "ski":     "Skiing",
+    "skydive": "Skydiving",
+    "trail":   "Trail Running",
+    "cycling": "Cycling",
+}
+
+
+def display_name(sport: str | None) -> str:
+    if not sport:
+        return "unknown"
+    return DISPLAY_NAMES.get(sport, sport.title())
+
 
 @dataclass
 class SportDefaults:

@@ -36,6 +36,7 @@ from axedup.models.db import get_session as db_session
 from axedup.models.schema import (
     Clip, Export, Mark, MarkStatus, Profile, Session, SessionStatus, TelemetryPoint,
 )
+from axedup.presets.sports import display_name
 from axedup.ui import state
 from axedup.ui.state import StageState
 from axedup.ui.layout import sidebar
@@ -43,7 +44,12 @@ from axedup.ui.layout import sidebar
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _GRADES   = ['punchy', 'cinematic', 'natural', 'warm', 'cool', 'vibrant']
-_SPORT_FB = ['mtb', 'surf', 'ski', 'cycling', 'moto', 'trail', 'skydive']
+_SPORT_FB = ['moto', 'mtb', 'surf', 'ski', 'cycling', 'trail', 'skydive']
+
+
+def _sport_order(sports: list[str]) -> list[str]:
+    """Motorcycle first (per user preference, it's the default), rest alphabetical."""
+    return sorted(sports, key=lambda s: (s != 'moto', s))
 
 _PROXY_STAGES = ['proxy']
 _SCAN_STAGES  = ['scenes', 'motion']
@@ -323,6 +329,56 @@ def _timeline_html(mark_data: list, clip_info: list) -> str:
     return ''.join(out)
 
 
+def _profile_info_html(sport: str) -> str:
+    """What the sport profile actually does to the pipeline, in plain words.
+    Lists only fields that are wired in today; the rest are called out as inert."""
+    from axedup.presets.sports import DEFAULT_PROFILES
+    with db_session() as db:
+        p = db.query(Profile).filter(Profile.sport == sport).first()
+        vals = (
+            {'color_grade': p.color_grade, 'motion_threshold': p.motion_threshold,
+             'scene_detector': p.scene_detector, 'scene_threshold': p.scene_threshold,
+             'scene_min_scene_len': p.scene_min_scene_len}
+            if p else DEFAULT_PROFILES.get(sport)  # same fallback the pipeline uses
+        )
+    if not vals:
+        return ('<div style="color:#888;font-size:0.75rem;padding:0.6rem">'
+                f'No profile found for "{sport}" — pipeline defaults apply.</div>')
+    det = vals.get('scene_detector') or 'content'
+    if vals.get('scene_threshold') is not None:
+        det += f' @ {vals["scene_threshold"]:g}'
+    if vals.get('scene_min_scene_len') is not None:
+        det += f' · min {vals["scene_min_scene_len"]} frames'
+    mt = vals.get('motion_threshold')
+    rows = [
+        ('Default grade', vals.get('color_grade') or 'natural',
+         'starting colour grade at the Combine step (changeable there)'),
+        ('Motion threshold', f'{mt:g}' if mt is not None else '—',
+         'how much motion counts as a highlight — lower finds more clips'),
+        ('Scene detection', det,
+         'how camera cuts are found when scanning'),
+    ]
+    out = [
+        '<div style="max-width:340px;padding:0.6rem 0.75rem;font-size:0.75rem;color:#bbb">',
+        f'<div style="font-weight:700;color:#ddd;margin-bottom:0.45rem">What the '
+        f'<span style="color:#5a9a5a">{display_name(sport)}</span> profile sets</div>',
+    ]
+    for name, val, why in rows:
+        out.append(
+            f'<div style="margin-bottom:0.4rem">'
+            f'<span style="color:#eee">{name}:</span> '
+            f'<span style="color:#e09030">{val}</span><br>'
+            f'<span style="color:#777;font-size:0.7rem">{why}</span></div>'
+        )
+    out.append(
+        '<div style="border-top:1px solid #333;margin-top:0.5rem;padding-top:0.4rem;'
+        'color:#666;font-size:0.68rem">Stored but not used by the pipeline yet: '
+        'clip length bounds, target durations, music energy, telemetry overlays, '
+        'speed threshold.</div></div>'
+    )
+    return ''.join(out)
+
+
 def _show_exports(session_id: str, container) -> None:
     container.clear()
     with container:
@@ -407,7 +463,7 @@ def session_page(session_id: str) -> None:
         still_path   = Path('/nonexistent/_still.jpg')
         detect_method_ref = ['proxy']
         with db_session() as db:
-            sports = [p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB
+            sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
     else:
         with db_session() as db:
             session = db.query(Session).filter(Session.id == session_id).first()
@@ -432,7 +488,7 @@ def session_page(session_id: str) -> None:
             ) if clip_ids else []
             mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
             rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
-            sports = [p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB
+            sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
 
         proxy_task      = state.get_task(f'{session_id}_proxy')
         scan_task       = state.get_task(f'{session_id}_scan')
@@ -651,9 +707,14 @@ def session_page(session_id: str) -> None:
                     ds = created.strftime('%Y-%m-%d %H:%M') if created else ''
                     _est = max(60, int(total_s)) + max(30, int(total_s // 3)) + 180
                     with ui.row().style('gap:0.6rem;align-items:baseline'):
-                        ui.label(f'{sport}  ·  {ds}  ·  est ~{_fmt(_est)}').style(
+                        ui.label(f'{display_name(sport)}  ·  {ds}  ·  est ~{_fmt(_est)}').style(
                             'color:#ddd;font-size:0.85rem;font-weight:600'
                         )
+                        with ui.button(icon='info_outline').props(
+                            'flat round dense size=xs'
+                        ).style('color:#555').tooltip('What this sport profile does'):
+                            with ui.menu().style('background:#1c1c1c;border:1px solid #333'):
+                                ui.html(_profile_info_html(sport), sanitize=False)
                         _he = ui.label('').style('color:#5a8a9a;font-size:0.75rem')
                         hdr_elapsed_ref[0] = _he
                     _ht = ui.label('').style('color:#4a9a4a;font-size:0.72rem;margin-left:0.25rem')
@@ -826,9 +887,22 @@ def session_page(session_id: str) -> None:
                             ui.button(icon='folder_open', on_click=_browse_files).props('flat round dense size=sm').tooltip('Browse')
                             _hl = ui.label('').style('color:#666;font-size:0.72rem;min-width:80px')
                             _new_hint_ref[0] = _hl
-                            _ss = ui.select(options=sports, value=sports[0] if sports else 'unknown',
-                                            label='Sport').style('min-width:100px')
+                            _ss = ui.select(
+                                options={s: display_name(s) for s in sports},
+                                value=sports[0] if sports else 'unknown',
+                                label='Sport',
+                            ).style('min-width:140px')
                             _new_sport_ref[0] = _ss
+                            with ui.button(icon='info_outline').props(
+                                'flat round dense size=sm'
+                            ).style('color:#555').tooltip('What this sport profile does'):
+                                with ui.menu().style('background:#1c1c1c;border:1px solid #333'):
+                                    _pi_html = ui.html(
+                                        _profile_info_html(_ss.value), sanitize=False
+                                    )
+                            _ss.on_value_change(
+                                lambda e: _pi_html.set_content(_profile_info_html(e.value))
+                            )
                         _ne = ui.label('').style('color:#e57373;font-size:0.78rem')
                         _new_err_ref[0] = _ne
                         next_action['fn'] = None  # will be set by _do_start wiring below

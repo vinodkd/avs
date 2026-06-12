@@ -5,6 +5,7 @@ from nicegui import ui
 from axedup import config
 from axedup.models.db import get_session as db_session
 from axedup.models.schema import Clip, Mark, Session, SessionStatus
+from axedup.presets.sports import display_name
 from axedup.ui.layout import sidebar
 
 
@@ -74,7 +75,7 @@ def _session_row(sid: str, sport, created_at, clips, duration, status: str) -> N
     with ui.card().style('background: #1e1e1e; margin-bottom: 0.5rem; width: 100%'):
         with ui.row().style('align-items: center; justify-content: space-between; width: 100%'):
             with ui.row().style('align-items: center; gap: 1rem; flex-wrap: wrap'):
-                ui.badge(sport or 'unknown').style(
+                ui.badge(display_name(sport)).style(
                     'background: #1a2a1a; color: #5a9a5a; font-size: 0.75rem; padding: 0.2rem 0.5rem'
                 )
                 ui.label(created_at.strftime('%Y-%m-%d  %H:%M') if created_at else '').style(
