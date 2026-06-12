@@ -193,7 +193,10 @@ def _media_url(path: Path) -> str:
 
 def _fmt(secs: float) -> str:
     m, s = divmod(int(secs), 60)
-    return f'{m}m{s:02d}s' if m else f'{s}s'
+    h, m = divmod(m, 60)
+    if h:
+        return f'{h}h {m}m {s}s'
+    return f'{m}m {s}s' if m else f'{s}s'
 
 
 def _tsfmt(ts: float) -> str:
@@ -360,12 +363,18 @@ def _do_delete(session_id: str) -> None:
         s = db.query(Session).filter(Session.id == session_id).first()
         if s: db.delete(s)
     (config.PREVIEW_DIR / f'{session_id}_preview.mp4').unlink(missing_ok=True)
+    (config.STILL_DIR / f'{session_id}_still.jpg').unlink(missing_ok=True)
+    for sw in config.STILL_DIR.glob(f'{session_id}_grade_*.jpg'):
+        sw.unlink(missing_ok=True)
     for cid in clip_ids:
         (config.PROXY_DIR / f'{cid}.mp4').unlink(missing_ok=True)
         shutil.rmtree(config.THUMB_DIR / cid, ignore_errors=True)
         shutil.rmtree(config.JPEG_FRAMES_DIR / cid, ignore_errors=True)
     for mid in mark_ids:
         (config.SEGMENT_DIR / f'{mid}.mp4').unlink(missing_ok=True)
+        (config.SEGMENT_DIR / 'encoded' / f'{mid}.mp4').unlink(missing_ok=True)
+        for enc in (config.SEGMENT_DIR / 'encoded').glob(f'{mid}_*.mp4'):
+            enc.unlink(missing_ok=True)
     ui.navigate.to('/')
 
 
@@ -591,6 +600,9 @@ def session_page(session_id: str) -> None:
     _swatch_row_ref     = [None]
     _swatch_built       = [False]
     _swatch_cards:      dict[str, object] = {}
+    _swatch_paths:      dict[str, Path] = {}
+    grade_prev_ref      = [None]
+    _tag_before_preview = [None]
 
     # export refs
     _export_a16_val    = [True]
@@ -837,7 +849,8 @@ def session_page(session_id: str) -> None:
                         ).style('min-width:110px').props('dense outlined')
                         _grade_sel.on_value_change(
                             lambda e: (_combine_grade_val.__setitem__(0, e.value),
-                                       _highlight_swatch(e.value))
+                                       _highlight_swatch(e.value),
+                                       _show_grade_preview(e.value))
                         )
                         _grade_sel_ref = [_grade_sel]
 
@@ -939,6 +952,17 @@ def session_page(session_id: str) -> None:
                                 'object-fit:contain;display:none;background:#000"></video>',
                                 sanitize=False,
                             )
+
+                        # Full-size grade preview overlay — shown when a swatch
+                        # is selected; click to return to the video
+                        if not is_new:
+                            _gp = ui.image('').props('fit=contain').style(
+                                'position:absolute;top:0;left:0;width:100%;height:100%;'
+                                'background:#000;z-index:6;cursor:pointer'
+                            ).tooltip('Click to return to the video')
+                            _gp.on('click', lambda: _hide_grade_preview())
+                            _gp.set_visibility(False)
+                            grade_prev_ref[0] = _gp
 
                 # ── Review panel ───────────────────────────────────────────────
                 with ui.element('div').classes('ax2-review-panel') as _review_panel:
@@ -1051,8 +1075,30 @@ def session_page(session_id: str) -> None:
             card.style(replace=_swatch_style(g == grade))
 
     def _select_grade(grade: str) -> None:
-        # set_value triggers the select's on_value_change → updates val + highlight
+        # set_value triggers the select's on_value_change → updates val + highlight.
+        # Show the preview directly too: re-clicking the already-selected swatch
+        # fires no value-change event but should still bring the preview up.
         _grade_sel_ref[0].set_value(grade)
+        _show_grade_preview(grade)
+
+    def _show_grade_preview(grade: str) -> None:
+        gp = grade_prev_ref[0]
+        p  = _swatch_paths.get(grade)
+        if gp is None or p is None: return
+        cur = player_tag_ref[0].text if player_tag_ref[0] else ''
+        if not cur.startswith('Grade preview'):
+            _tag_before_preview[0] = cur
+        gp.set_source(f'/stills/{p.name}')
+        gp.set_visibility(True)
+        _set_player_tag(f'Grade preview: {grade} — click image to return to the video')
+        ui.run_javascript('var v=document.getElementById("main-player"); if(v) v.pause();')
+
+    def _hide_grade_preview() -> None:
+        gp = grade_prev_ref[0]
+        if gp is None: return
+        gp.set_visibility(False)
+        if _tag_before_preview[0] is not None:
+            _set_player_tag(_tag_before_preview[0])
 
     async def _ensure_swatches() -> None:
         sw = _swatch_row_ref[0]
@@ -1077,6 +1123,7 @@ def session_page(session_id: str) -> None:
             ui.notify(f'Grade preview failed: {exc}', type='warning')
             return
         _swatch_built[0] = True
+        _swatch_paths.update(paths)
         with sw:
             for g in _GRADES:
                 p = paths.get(g)
@@ -1127,6 +1174,7 @@ def session_page(session_id: str) -> None:
                 ui.timer(0.05, _ensure_swatches, once=True)
             else:
                 _swatch_row_ref[0].set_visibility(False)
+                _hide_grade_preview()
 
         if stage == 'input':
             _set_next_btn('Working copy ready →' if clip_ids else '(load footage first)', bool(clip_ids), None)
@@ -1488,9 +1536,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
         import datetime
         if not created: return
         elapsed_s = max(0, int((datetime.datetime.utcnow() - created).total_seconds()))
-        m, s = divmod(elapsed_s, 60)
         if hdr_elapsed_ref[0]:
-            hdr_elapsed_ref[0].set_text(f'elapsed {m}m{s:02d}s' if m else f'elapsed {s}s')
+            hdr_elapsed_ref[0].set_text(f'elapsed time: {_fmt(elapsed_s)}')
 
     _elapsed_timer = ui.timer(1.0, _elapsed_tick, active=not is_new)
 

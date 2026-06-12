@@ -75,7 +75,7 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 
 ### FR-7: Video Assembly
 - Assembles accepted clips in chronological order
-- Applies sport profile color grade (bundled .cube LUT files via FFmpeg)
+- Applies sport profile color grade (FFmpeg eq/colorbalance filters; LUT files are a possible future upgrade)
 - Optionally adds background music with auto-ducking; user provides their own track via `--music /path/to/track.mp3`
 - Renders telemetry overlays (speed, altitude) if data present and enabled
 - Produces 1080p H.264 preview

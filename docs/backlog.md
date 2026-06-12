@@ -28,11 +28,12 @@ appear (→ CLI — power users).
 
 ## Session UI
 
-- [ ] **Grade swatch strip** (decided 2026-06-11) — at the Combine stage, render one
+- [x] ~~**Grade swatch strip** (decided 2026-06-11) — at the Combine stage, render one
   representative proxy frame through each grade's filter string and show a row of
-  small swatches, one per grade, so the user compares side by side before choosing.
-  Cheap: grades are plain FFmpeg `eq`/`colorbalance` filters; a per-grade still
-  renders in well under a second on the 480p proxy.
+  small swatches, one per grade, so the user compares side by side before choosing.~~
+  Shipped, including click-for-full-size preview in the player. Grades were retuned
+  for visual separation (midtone-based warm/cool); may need further tweaking after
+  more real-footage use.
 - [ ] **Sport profile info popover** (decided 2026-06-11) — popover next to the sport
   selector listing what the active profile actually sets: default color grade, music
   energy, target durations (YouTube/short), min/max clip length, telemetry overlay

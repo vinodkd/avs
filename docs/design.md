@@ -465,8 +465,11 @@ cut segments (stream copy, fast):
 encode segments in parallel (4 workers):
   for each segment:
     ffmpeg -i {segment} -vf {grade_filter} -c:v libx264 -preset medium -crf 22
-           {segments/encoded/mark_id.mp4}
-  cached — validated with ffprobe before trusting; corrupt files deleted and re-encoded
+           {segments/encoded/{mark_id}_{grade}_{filterhash}.mp4}
+  cached — keyed by mark + grade + a hash of the grade's filter string (the grade
+  is baked into the encode, so grade changes or filter retunes re-encode instead
+  of reusing stale files); validated with ffprobe before trusting; corrupt files
+  deleted and re-encoded
 
 concat encoded segments (lossless copy):
   ffmpeg -f concat -i {list} -c copy {cache/previews/{session_id}_preview.mp4}
@@ -537,7 +540,7 @@ Defined in `axedup/presets/sports.py` as Python dataclasses.
 | trail | natural | medium | 10 km/h | 0.40 | 3 min |
 | cycling | natural | medium | 20 km/h | 0.45 | 5 min |
 
-LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punchy, warm, cool, vibrant, cinematic, natural). Music: user-provided via `--music /path/to/track.mp3`. No bundled tracks — see `/brainstorm/audio-music.md` for licensing rationale and future browser feature plan.
+Grades are FFmpeg `eq`/`colorbalance` filter strings (`GRADE_FILTERS` in `processing/assembly.py`) — no LUT files are used at present; `presets/luts/` is reserved for a possible LUT upgrade (see Open Questions). The Combine stage shows a swatch per grade (the session still rendered through each filter, cached by filter-string hash) with a full-size preview in the player on selection. Music: user-provided via `--music /path/to/track.mp3`. No bundled tracks — see `/brainstorm/audio-music.md` for licensing rationale and future browser feature plan.
 
 ---
 
@@ -571,46 +574,50 @@ LUT files: `.cube` format, bundled in `presets/luts/`. One per grade style (punc
 
 ---
 
-## Phase 2 UI Design (NiceGUI)
+## UI Design (NiceGUI)
 
-The CLI remains the primary interface throughout. `axedup ui` (or `python run.py ui`) launches NiceGUI, which calls the same processing modules as the CLI — no separate backend, no duplication of pipeline logic.
+The NiceGUI desktop UI is the primary interface. `axedup ui` (or `python run.py ui`) launches it; it calls the same processing modules as the CLI — no separate backend, no duplication of pipeline logic. The CLI lags behind the UI and its refactor is parked (see `docs/backlog.md` → "CLI — power users").
+
+Full layout rationale and behaviour detail: `docs/plan_ui_redesign_2.md` (the shipped v2 redesign).
 
 ### Navigation
 
-Collapsible left sidebar (always visible; collapses to icon strip via Quasar mini mode). Items: Home, Current Edit, Settings (future). Uses `ui.left_drawer` with `breakpoint=0` so it never auto-hides.
+Collapsible left sidebar. Items: Home, Current Edit, Settings (future). Uses `ui.left_drawer` with `breakpoint=0` so it never auto-hides. On the session page it starts collapsed; the collapse toggle sits at the top of the drawer itself — hamburger icon when collapsed, chevron (<) when expanded.
 
 ### Home / History screen (`/`)
 
-Lists past sessions from the DB: sport badge, date, clip count, total duration, status badge, "Continue →" button, delete button. Delete removes all DB records and cached files (proxies, thumbnails, jpeg_frames, segments, preview). "Select source video" button at top navigates to `/load`.
+Lists past sessions from the DB: sport badge, date, clip count, total duration, status badge, "Continue →" button, delete button. Delete removes all DB records and cached files (proxies, thumbnails, jpeg_frames, segments incl. encoded, preview, still, grade swatches). "Start editing →" navigates to `/session/new`.
 
-### Load screen (`/load`)
+### Session screen (`/session/{id}` and `/session/new`)
 
-File/folder picker, sport dropdown, scan method radio (Quick = JPEG frames / Full = optical flow). Start button ingests footage, immediately starts background analysis, and navigates to `/session/{id}`.
-
-### Session screen (`/session/{id}`) — planned 3-pane redesign
-
-Single page containing the entire editing workflow. Layout:
+Single page containing the entire editing workflow:
 
 ```
-┌──────────────────────────────┬─────────────────────┐  60% tall
-│  Video player (60% wide)     │  Step list (40%wide) │
-│  + timeline strip once clips │  Title, subtitle,    │
-│    are found (stays until    │  status dot, est vs  │
-│    picks are saved)          │  actual times,       │
-│                              │  counts found        │
-├──────────────────────────────┴─────────────────────┤  40% tall
-│  Detail pane — progress bars + context for         │
-│  selected step                     [Next action →] │
-└────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  header: sport · date · elapsed time · est   [delete]   │
+├───────────────────┬─────────────────────────────────────┤
+│                   │  step options       [Next action →]  │
+│   Stage table     ├─────────────────────────────────────┤
+│   (300px fixed)   │  (progress strip / grade swatches)  │
+│                   ├─────────────────────────────────────┤
+│   Stage Est Act N │  Video player in a labeled frame    │
+│   ──────────────  │                                     │
+│   Select video    │  EMPTY   → placeholder + browse     │
+│   Trim video      │  PREVIEW → still, then proxy        │
+│    …sub-rows…     │  REVIEW  → timeline + thumb cards   │
+│   [Add text]      │           (below the player)        │
+│   [Add music]     │  OUTPUT  → preview / exported file  │
+│   Export          │                                     │
+└───────────────────┴─────────────────────────────────────┘
 ```
 
-**Top-left (60 × 60%):** Video player. Empty placeholder until proxy exists. Once proxy is built, player fills 80% of pane height; timeline strip (proportional clip/mark bars) occupies the remaining 20% and is visible whenever the Pick step is active or selected. After assembly, player source switches to preview; after export, to the exported file.
-
-**Top-right (40 × 60%):** Step nav list — always visible summary panel. One row per step: status dot (grey/amber-pulse/green), step title, subtitle, estimated vs actual time taken, count of items found (clips, marks, etc.). Clicking a row selects it and loads its detail into the bottom pane. Steps are not an access-controlled stepper; the right pane is purely informational nav — the next-action button in the bottom pane is the only forward gate.
-
-**Bottom (100 × 40%):** Context detail for the selected step. Shows `ui.linear_progress` bars for each sub-stage (proxy, snapshots, scenes, motion — and assembly, export). Completed bars stay visible. Input step shows source browse UI here. Next-action button pinned to bottom-right; its label and enabled state reflect what's possible at the current moment.
-
-Steps: **1 — Input** (choose footage) · **2 — Analyze** (build working copy + find clips) · **3 — Pick** (accept/reject clips) · **4 — Combine** (colour grade + assemble preview) · **5 — Export** (encode final file)
+- **Stage table:** Stage / Est / Act / N columns; estimates static, actuals and counts update live (task timestamps survive page reloads via shared task state; not app restarts). Compresses during clip review, keeping counts.
+- **Options bar:** all per-step controls (scan method, combine grade, export aspects/folder) plus the next-action button at top right. No dialogs.
+- **Player frame label** states what is on screen: "Static preview of original" → "Working copy" → "Selected clips, combined" → "Exported". After export the exported file itself is mounted (served via a per-file media route, so any output folder works).
+- **Progress strips** (per-clip proxy/scan bars, combine "x of y segments", export %) sit above the player, never overlaying it. Combine/export watchers re-attach when the user navigates away and back mid-run.
+- **Grade swatches** at the Combine stage: the session still rendered through each grade filter; clicking shows the frame full-size in the player (click again to return to the video).
+- **Steps:** Select video · Trim video (working copy → scan → find clips → select clips → combine) · Add text (future) · Add music (future) · Export.
+- Drag-and-drop is deliberately absent: pywebview's default drop navigates the app to fullscreen video playback; default drop is blocked window-wide.
 
 Assembly falls back to CANDIDATE marks if no ACCEPTED marks exist (user skipped Save Picks).
 
@@ -620,7 +627,7 @@ Platform tiles (YouTube, Instagram), per-platform metadata, auth flow. Not imple
 
 ### Settings screen (backlog)
 
-Sport profile editor, global cache dir, custom FFmpeg path.
+Preferences (default sport/grade/scan method/export aspects/output folder) + sport profile editor with reset-to-defaults; global cache dir, custom FFmpeg path. See `docs/backlog.md` → Session UI.
 
 ---
 
@@ -631,4 +638,4 @@ Sport profile editor, global cache dir, custom FFmpeg path.
 3. **Music licensing:** Confirm Free Music Archive and ccMixter have appropriate CC0 / CC-BY tracks for the sports needed.
 4. **LUT sources:** Commission, adapt open-source packs, or generate via FFmpeg eq/curves parameters? Open-source LUT packs (e.g. from Lutify.me free tier) may be usable with attribution.
 5. ~~**Scene detection threshold:** Default 27 is tuned for general content. Action footage with motion blur and fast panning may need a higher threshold.~~ Resolved: `scene_detector`, `scene_threshold`, and `scene_min_scene_len` are now per-sport profile fields, configurable per sport in `presets/sports.py`.
-6. **Review HTML polling:** Polling a temp file works but is crude. Alternative: NiceGUI Phase 2 replaces the HTML approach entirely, making this a short-lived workaround.
+6. ~~**Review HTML polling:** Polling a temp file works but is crude.~~ Resolved for the UI: the NiceGUI session page does review natively. The temp-file approach survives only in the CLI path (`processing/review.py`) — tracked under `docs/backlog.md` → "CLI — power users".

@@ -6,6 +6,7 @@ No LUT files required — grade is applied via FFmpeg eq/colorbalance filters.
 Music and telemetry overlays are skipped until those assets exist.
 """
 
+import hashlib
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -19,14 +20,16 @@ from axedup.models.db import get_session
 from axedup.models.schema import Clip, Mark, MarkStatus, Profile, Session, SessionStatus
 from axedup.presets.sports import DEFAULT_PROFILES
 
-# FFmpeg eq/colorbalance filter string per grade style (None = no adjustment)
+# FFmpeg eq/colorbalance filter string per grade style (None = no adjustment).
+# warm/cool shift midtones (rm/bm), not just shadows — action footage is mostly
+# bright midtones, so shadow-only shifts are invisible on it.
 GRADE_FILTERS: dict[str, str | None] = {
-    "punchy":    "eq=contrast=1.2:saturation=1.3:brightness=0.05",
-    "cinematic": "eq=contrast=1.1:saturation=0.85:brightness=-0.05",
+    "punchy":    "eq=contrast=1.25:saturation=1.35:brightness=0.04",
+    "cinematic": "eq=contrast=1.15:saturation=0.7:brightness=-0.05:gamma=1.05",
     "natural":   None,
-    "warm":      "eq=saturation=1.1,colorbalance=rs=0.08:gs=0.02:bs=-0.08",
-    "cool":      "colorbalance=rs=-0.08:gs=0.0:bs=0.12",
-    "vibrant":   "eq=contrast=1.15:saturation=1.5",
+    "warm":      "eq=saturation=1.12,colorbalance=rm=0.18:gm=0.04:bm=-0.18:rs=0.08:bs=-0.08",
+    "cool":      "eq=saturation=1.05,colorbalance=rm=-0.15:bm=0.22:rs=-0.05:bs=0.10",
+    "vibrant":   "eq=contrast=1.12:saturation=1.8",
 }
 
 
@@ -37,16 +40,29 @@ _SOURCE_MAP = {
 }
 
 
+def _grade_tag(grade: str) -> str:
+    """Short fingerprint of a grade's filter string — cache key component so
+    tuned filters re-render instead of serving stale cached output."""
+    return hashlib.md5((GRADE_FILTERS.get(grade) or "none").encode()).hexdigest()[:8]
+
+
 def render_grade_swatches(source_jpg: Path, dest_dir: Path, prefix: str) -> dict[str, Path]:
     """Render *source_jpg* through each grade filter for side-by-side preview.
 
-    Writes `{prefix}_grade_{grade}.jpg` into *dest_dir* (skipping files that
-    already exist) and returns {grade: path}.
+    Writes `{prefix}_grade_{grade}_{hash}.jpg` into *dest_dir* and returns
+    {grade: path}. The filename carries a hash of the filter string, so a
+    tuned filter re-renders instead of serving a stale cached swatch; swatches
+    from older filter versions are deleted.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
     for grade, vf in GRADE_FILTERS.items():
-        dest = dest_dir / f"{prefix}_grade_{grade}.jpg"
+        tag = _grade_tag(grade)
+        dest = dest_dir / f"{prefix}_grade_{grade}_{tag}.jpg"
+        (dest_dir / f"{prefix}_grade_{grade}.jpg").unlink(missing_ok=True)  # pre-hash name
+        for stale in dest_dir.glob(f"{prefix}_grade_{grade}_*.jpg"):
+            if stale != dest:
+                stale.unlink(missing_ok=True)
         if not dest.exists():
             cmd = [config.FFMPEG_BIN, "-y", "-i", str(source_jpg)]
             if vf:
@@ -134,7 +150,17 @@ def assemble_session(
     # --- Stage 2: Encode each segment in parallel with grade ---
     encoded_dir = config.SEGMENT_DIR / "encoded"
     encoded_dir.mkdir(parents=True, exist_ok=True)
-    encoded_paths = [encoded_dir / f"{mark.id}.mp4" for mark in marks]
+    # Cache key includes grade + filter hash: the grade is baked into the encode,
+    # so a different (or retuned) grade must not reuse these files.
+    grade_tag = "nograde" if disable_overlay else _grade_tag(grade)
+    encoded_paths = []
+    for mark in marks:
+        enc = encoded_dir / f"{mark.id}_{grade}_{grade_tag}.mp4"
+        (encoded_dir / f"{mark.id}.mp4").unlink(missing_ok=True)  # pre-hash name
+        for stale in encoded_dir.glob(f"{mark.id}_*.mp4"):
+            if stale != enc:
+                stale.unlink(missing_ok=True)
+        encoded_paths.append(enc)
     total_segs = len(marks)
 
     _log(f"Encoding {total_segs} segment(s) …")
