@@ -37,6 +37,11 @@ appear (→ CLI — power users).
 
 ## Session UI
 
+- [ ] **Option to hide dull cards in review** — dull sections render as cards like
+  everything else; fine while sessions are short (the card area scrolls), but
+  hours-long footage will produce hundreds of dull cards. Add a toggle (or show
+  dull only in the timeline) when that day comes. Noted 2026-06-12.
+
 - [x] ~~**Grade swatch strip** (decided 2026-06-11) — at the Combine stage, render one
   representative proxy frame through each grade's filter string and show a row of
   small swatches, one per grade, so the user compares side by side before choosing.~~

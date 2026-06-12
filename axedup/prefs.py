@@ -18,6 +18,7 @@ DEFAULTS: dict = {
     "boring_threshold_pct": 35,       # dull = motion < pct% of sport motion_threshold
     "boring_min_s": 8.0,              # dull stretches shorter than this are pacing, not boredom
     "boring_gap_s": 2.0,              # blips above the line shorter than this don't break a region
+    "dull_min_s": 3.0,                # unclaimed gaps shorter than this aren't worth a mark
 }
 
 

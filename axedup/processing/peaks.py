@@ -284,7 +284,7 @@ def _detect_clip_boring(
     timestamps = [t for t, _ in values]
     smoothed   = _rolling_mean([v for _, v in values], window=3)
 
-    regions = _dull_runs(timestamps, smoothed, low_bar, gap_s)
+    regions = _low_motion_runs(timestamps, smoothed, low_bar, gap_s)
     regions = [r for r in _subtract_intervals(regions, keep_marks)
                if r[1] - r[0] >= min_s]
     if not regions:
@@ -315,13 +315,13 @@ def _rolling_mean(values: list[float], window: int = 3) -> list[float]:
     return out
 
 
-def _dull_runs(
+def _low_motion_runs(
     timestamps: list[float],
     values: list[float],
     low_bar: float,
     gap_s: float,
 ) -> list[tuple[float, float]]:
-    """Contiguous spans where values stay below low_bar, bridging blips ≤ gap_s."""
+    """Contiguous low-motion spans (for boring detection), bridging blips ≤ gap_s."""
     runs: list[tuple[float, float]] = []
     start = None
     last_dull = None
@@ -356,3 +356,58 @@ def _subtract_intervals(
                 nxt.append((h_out, r_out))
         out = nxt
     return out
+
+
+# ---------------------------------------------------------------------------
+# Dull-gap marking — unclaimed footage between marks becomes its own category
+# ---------------------------------------------------------------------------
+
+DULL_SOURCE = "dull_gap"
+
+
+def detect_dull_gaps(session_id: str, on_event=None) -> int:
+    """
+    Mark every span of footage not covered by any other mark as status=DULL.
+
+    Runs after peak + boring detection so the timeline has no anonymous black
+    gaps: everything is a highlight, boring, or dull. Gaps shorter than the
+    dull_min_s app setting are ignored. Returns the number of dull marks created.
+    """
+    from axedup.prefs import get_prefs
+
+    _notify = on_event or _NOOP
+    min_s = float(get_prefs().get("dull_min_s", 3.0))
+
+    with get_session() as db:
+        clips = (
+            db.query(Clip)
+            .filter(Clip.session_id == session_id)
+            .order_by(Clip.clip_order)
+            .all()
+        )
+
+    total = 0
+    for clip in clips:
+        if not clip.duration_s:
+            continue
+        with get_session() as db:
+            db.query(Mark).filter(
+                Mark.clip_id == clip.id,
+                Mark.source == DULL_SOURCE,
+            ).delete()
+            occupied = [
+                (m.in_s, m.out_s) for m in
+                db.query(Mark).filter(Mark.clip_id == clip.id).all()
+            ]
+        gaps = [g for g in _subtract_intervals([(0.0, clip.duration_s)], occupied)
+                if g[1] - g[0] >= min_s]
+        if gaps:
+            with get_session() as db:
+                db.add_all([
+                    Mark(clip_id=clip.id, in_s=round(a, 2), out_s=round(b, 2),
+                         score=0.0, source=DULL_SOURCE, status=MarkStatus.DULL)
+                    for a, b in gaps
+                ])
+        _notify(clip.id, 'dull', 'done', f"{clip.filename}: {len(gaps)} dull gap(s)", None, None)
+        total += len(gaps)
+    return total

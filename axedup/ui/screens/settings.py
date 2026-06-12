@@ -97,6 +97,9 @@ def settings_page() -> None:
                                     value=prefs['boring_min_s']).style('width:140px')
                 _p_bgap = ui.number(label='Gap tolerance (s)', min=0.0, step=0.5,
                                     value=prefs['boring_gap_s']).style('width:140px')
+                _p_dmin = ui.number(label='Min dull gap (s)', min=1.0, step=1.0,
+                                    value=prefs['dull_min_s']).style('width:140px').tooltip(
+                    'Unclaimed footage between marks shorter than this is not shown as a dull section')
 
             def _save_prefs() -> None:
                 save_prefs({
@@ -109,6 +112,7 @@ def settings_page() -> None:
                     'boring_threshold_pct': int(_p_bpct.value or 35),
                     'boring_min_s': float(_p_bmin.value or 8.0),
                     'boring_gap_s': float(_p_bgap.value or 2.0),
+                    'dull_min_s': float(_p_dmin.value or 3.0),
                 })
                 ui.notify('Preferences saved', type='positive')
 

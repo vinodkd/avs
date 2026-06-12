@@ -457,8 +457,14 @@ Thresholds are global app settings (Settings → Boring-region detection), not c
 constants; per-profile overrides only if usage shows sports need different
 tolerances. In review, boring marks render amber/hatched with a `z` badge and
 cycle skip↔include on click (never red). Combine assembles only accepted marks,
-so skipped spans stay out unless rescued. Timeline dark gaps = footage that is
-neither highlight nor confidently boring (by design).
+so skipped spans stay out unless rescued.
+
+Dull-gap marking (`detect_dull_gaps`, same module) runs last: every span not
+covered by any other mark becomes a Mark with status='dull' (source='dull_gap',
+min length = `dull_min_s` setting). The timeline therefore has no anonymous
+gaps — everything is highlight (green/red), boring (amber hatched), or dull
+(solid orange, `–` badge). Dull cycles dull↔include on click, exactly like
+boring's rescue.
 
 ### Stage 4 — Review HTML (`cli.py` + `processing/review.py`)
 

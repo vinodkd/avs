@@ -26,6 +26,7 @@ class MarkStatus(str, enum.Enum):
     ACCEPTED  = "accepted"
     REJECTED  = "rejected"
     BORING    = "boring"     # system-flagged low-activity span; user can rescue
+    DULL      = "dull"       # unclaimed footage between marks; user can include
 
 
 def _uuid() -> str:

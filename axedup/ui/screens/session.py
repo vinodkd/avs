@@ -278,6 +278,7 @@ _PICK_STYLE = {
     'skip': ('#8a6a18',
              'repeating-linear-gradient(45deg,transparent,transparent 4px,'
              'rgba(0,0,0,0.3) 4px,rgba(0,0,0,0.3) 6px)', 'z'),
+    'dull': ('#a8541d', 'none', '–'),
 }
 
 
@@ -331,6 +332,8 @@ def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = Non
             tip = f'{_tsfmt(in_s)}–{_tsfmt(out_s)} ({out_s-in_s:.1f}s)'
             if st == 'skip':
                 tip += ' — flagged boring, click to include'
+            elif st == 'dull':
+                tip += ' — dull (unclassified), click to include'
             out.append(
                 f'<div id="mark-{mid}" data-mid="{mid}" data-cid="{cid}" data-ins="{in_s}"'
                 f' style="position:absolute;top:15px;left:{ip:.2f}%;'
@@ -478,6 +481,7 @@ def session_page(session_id: str) -> None:
         total_s = 0.0
         rejected_ids: set = set()
         boring_ids: set = set()
+        dull_ids: set = set()
         all_proxies_done = proxy_running = scan_running = highlights_running = False
         has_motion_data = post_analysis = False
         preview_path = Path('/nonexistent/_preview.mp4')
@@ -504,13 +508,15 @@ def session_page(session_id: str) -> None:
                 .join(Clip, Mark.clip_id == Clip.id)
                 .filter(Mark.clip_id.in_(clip_ids))
                 .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED,
-                                         MarkStatus.REJECTED, MarkStatus.BORING]))
+                                         MarkStatus.REJECTED, MarkStatus.BORING,
+                                         MarkStatus.DULL]))
                 .order_by(Clip.clip_order, Mark.in_s)
                 .all()
             ) if clip_ids else []
             mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
             rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
             boring_ids   = {m.id for m in marks_all if m.status == MarkStatus.BORING}
+            dull_ids     = {m.id for m in marks_all if m.status == MarkStatus.DULL}
             sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
 
         proxy_task      = state.get_task(f'{session_id}_proxy')
@@ -544,9 +550,11 @@ def session_page(session_id: str) -> None:
         still_path   = config.STILL_DIR / f'{session_id}_still.jpg'
         detect_method_ref = [_pending_methods.get(session_id, _prefs['default_scan_method'])]
 
-    # Review state per mark: 'in' | 'out' | 'skip' (system-flagged boring)
+    # Review state per mark: 'in' | 'out' | 'skip' (boring) | 'dull' (unclaimed gap)
     _statuses = {
-        mid: ('out' if mid in rejected_ids else 'skip' if mid in boring_ids else 'in')
+        mid: ('out' if mid in rejected_ids else
+              'skip' if mid in boring_ids else
+              'dull' if mid in dull_ids else 'in')
         for mid, *_ in mark_data
     }
 
@@ -839,15 +847,18 @@ def session_page(session_id: str) -> None:
                 _n_in   = sum(1 for s in _statuses.values() if s == 'in')
                 _n_out  = sum(1 for s in _statuses.values() if s == 'out')
                 _n_skip = sum(1 for s in _statuses.values() if s == 'skip')
-                _n_found = len(mark_data) - len(boring_ids)
+                _n_dull = sum(1 for s in _statuses.values() if s == 'dull')
+                _n_found = len(mark_data) - len(boring_ids) - len(dull_ids)
 
                 _sub_row('highlights', 'Find clips', _est_str['highlights'], _init_act('highlights'),
                          str(_n_found) if mark_data else '')
 
+                _pick_count = f'{_n_in}·{_n_out}'
+                if boring_ids: _pick_count += f'·{_n_skip}'
+                if dull_ids:   _pick_count += f'·{_n_dull}'
                 _sub_row('pick', 'Select clips',
                          '', '',
-                         (f'{_n_in}·{_n_out}·{_n_skip}' if boring_ids
-                          else f'{_n_in}·{_n_out}') if mark_data else '')
+                         _pick_count if mark_data else '')
 
                 _sub_row('combine', 'Combine clips', _est_str['combine'], _init_act('combine'), '')
 
@@ -1312,9 +1323,11 @@ def session_page(session_id: str) -> None:
                 n_in2   = sum(1 for s in _statuses.values() if s == 'in')
                 n_out2  = sum(1 for s in _statuses.values() if s == 'out')
                 n_skip2 = sum(1 for s in _statuses.values() if s == 'skip')
+                n_dull2 = sum(1 for s in _statuses.values() if s == 'dull')
                 _set_next_btn('Save & combine clips →', bool(mark_data), _save_and_combine)
                 _ab_status.set_text(f'{n_in2} in · {n_out2} out'
-                                    + (f' · {n_skip2} skipped' if boring_ids else ''))
+                                    + (f' · {n_skip2} skipped' if boring_ids else '')
+                                    + (f' · {n_dull2} dull' if dull_ids else ''))
             else:
                 can_review = post_analysis and bool(mark_data) and not combining_lock[0]
                 _set_next_btn('Review clips →', can_review, _enter_review)
@@ -1373,7 +1386,8 @@ def session_page(session_id: str) -> None:
             ts_label = f'{_tsfmt(in_s)}–{_tsfmt(out_s)}'
             st = _statuses.get(mid, 'in')
             bc, _, bi = _PICK_STYLE[st]
-            hint = ' title="Flagged boring — click to include"' if st == 'skip' else ''
+            hint = (' title="Flagged boring — click to include"' if st == 'skip' else
+                    ' title="Dull (unclassified) — click to include"' if st == 'dull' else '')
             parts.append(
                 f'<div id="card-{mid}" onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})"{hint} '
                 f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
@@ -1392,16 +1406,19 @@ def session_page(session_id: str) -> None:
         return ''.join(parts)
 
     def _init_pick_js() -> None:
-        # Decisions are 'in' | 'out' | 'skip'. Boring-origin marks cycle
-        # in↔skip (never red); normal marks cycle in↔out.
+        # Decisions are 'in' | 'out' | 'skip' | 'dull'. System-flagged marks
+        # cycle back to their origin state (never red); normal marks cycle in↔out.
         boring_origin = {mid: True for mid, _, _, _, _, src in mark_data
                          if src == 'boring_motion'}
+        dull_origin = {mid: True for mid, _, _, _, _, src in mark_data
+                       if src == 'dull_gap'}
         pick_count_id = f'c{count_refs["pick"].id}' if 'pick' in count_refs else ''
         styles_js = json.dumps({st: {'c': c, 'img': img, 'icon': icon}
                                 for st, (c, img, icon) in _PICK_STYLE.items()})
         ui.run_javascript(f'''
 window.axedup_decisions = {json.dumps(_statuses)};
 window.axedup_boring = {json.dumps(boring_origin)};
+window.axedup_dull = {json.dumps(dull_origin)};
 var _AX_STYLES = {styles_js};
 
 function _axedupSet(mid, st) {{
@@ -1418,17 +1435,21 @@ function _axedupSet(mid, st) {{
     var ico = bar.querySelector("span.mark-icon");
     if (ico) ico.textContent = s.icon;
   }}
-  var n = {{'in': 0, 'out': 0, 'skip': 0}};
+  var n = {{'in': 0, 'out': 0, 'skip': 0, 'dull': 0}};
   Object.values(window.axedup_decisions).forEach(function(v) {{ n[v] += 1; }});
-  var anySkip = Object.keys(window.axedup_boring).length > 0;
+  var txt = n['in'] + "\\u00b7" + n['out'];
+  if (Object.keys(window.axedup_boring).length > 0) txt += "\\u00b7" + n['skip'];
+  if (Object.keys(window.axedup_dull).length > 0)   txt += "\\u00b7" + n['dull'];
   var el = document.getElementById("{pick_count_id}");
-  if (el) el.textContent = n['in'] + "\\u00b7" + n['out'] + (anySkip ? "\\u00b7" + n['skip'] : "");
+  if (el) el.textContent = txt;
 }}
 
 function _axedupCycle(mid) {{
   var cur = window.axedup_decisions[mid];
-  var next = window.axedup_boring[mid] ? (cur === "skip" ? "in" : "skip")
-                                       : (cur === "in" ? "out" : "in");
+  var next;
+  if (window.axedup_dull[mid])        next = (cur === "dull" ? "in" : "dull");
+  else if (window.axedup_boring[mid]) next = (cur === "skip" ? "in" : "skip");
+  else                                next = (cur === "in" ? "out" : "in");
   _axedupSet(mid, next);
 }}
 
@@ -1484,12 +1505,15 @@ window.axedupCardClick = function(mid, cid, ins) {{
         def _run():
             try:
                 from axedup.processing.analysis import run_motion_scan, extract_mark_thumbnails
-                from axedup.processing.peaks import detect_peaks, detect_boring_regions
+                from axedup.processing.peaks import (
+                    detect_peaks, detect_boring_regions, detect_dull_gaps,
+                )
                 run_motion_scan(session_id, motion_method=method, on_event=_on_event)
                 state.finish_task(f'{session_id}_scan')
                 state.start_task(f'{session_id}_highlights')
                 detect_peaks(session_id, on_event=_on_event, motion_method=method)
                 detect_boring_regions(session_id, on_event=_on_event, motion_method=method)
+                detect_dull_gaps(session_id, on_event=_on_event)
                 state.finish_task(f'{session_id}_highlights')
                 with db_session() as _db:
                     _s = _db.query(Session).filter(Session.id == session_id).first()
@@ -1512,8 +1536,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
         raw = await ui.run_javascript('JSON.stringify(window.axedup_decisions || {})')
         js_dec = json.loads(raw)
         _to_status = {'in': MarkStatus.ACCEPTED, 'out': MarkStatus.REJECTED,
-                      'skip': MarkStatus.BORING}
-        counts = {'in': 0, 'out': 0, 'skip': 0}
+                      'skip': MarkStatus.BORING, 'dull': MarkStatus.DULL}
+        counts = {'in': 0, 'out': 0, 'skip': 0, 'dull': 0}
         with db_session() as db2:
             for mid2, st in js_dec.items():
                 m2 = db2.query(Mark).filter(Mark.id == mid2).first()
@@ -1524,6 +1548,8 @@ window.axedupCardClick = function(mid, cid, ins) {{
         msg = f'Saved: {counts["in"]} in, {counts["out"]} out'
         if counts['skip']:
             msg += f', {counts["skip"]} skipped'
+        if counts['dull']:
+            msg += f', {counts["dull"]} dull'
         ui.notify(msg, type='positive')
         _exit_review()
         _update_action_bar_for_stage('combine')
@@ -1764,7 +1790,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
                 if clip_ids:
                     n_marks = _db2.query(Mark).join(Clip, Mark.clip_id == Clip.id).filter(
                         Mark.clip_id.in_(clip_ids),
-                        Mark.status != MarkStatus.BORING,
+                        Mark.status.notin_([MarkStatus.BORING, MarkStatus.DULL]),
                     ).count()
             if 'highlights' in count_refs and n_marks:
                 count_refs['highlights'].set_text(str(n_marks))
