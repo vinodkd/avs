@@ -37,6 +37,26 @@ _SOURCE_MAP = {
 }
 
 
+def render_grade_swatches(source_jpg: Path, dest_dir: Path, prefix: str) -> dict[str, Path]:
+    """Render *source_jpg* through each grade filter for side-by-side preview.
+
+    Writes `{prefix}_grade_{grade}.jpg` into *dest_dir* (skipping files that
+    already exist) and returns {grade: path}.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out: dict[str, Path] = {}
+    for grade, vf in GRADE_FILTERS.items():
+        dest = dest_dir / f"{prefix}_grade_{grade}.jpg"
+        if not dest.exists():
+            cmd = [config.FFMPEG_BIN, "-y", "-i", str(source_jpg)]
+            if vf:
+                cmd += ["-vf", vf]
+            cmd += ["-frames:v", "1", "-q:v", "4", str(dest)]
+            subprocess.run(cmd, capture_output=True, timeout=30, check=True)
+        out[grade] = dest
+    return out
+
+
 def assemble_session(
     session_id: str,
     console: Console | None = None,

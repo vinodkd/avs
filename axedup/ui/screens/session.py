@@ -588,6 +588,9 @@ def session_page(session_id: str) -> None:
     # combine refs
     _combine_grade_val  = ['natural']
     _combine_source_val = ['All accepted']
+    _swatch_row_ref     = [None]
+    _swatch_built       = [False]
+    _swatch_cards:      dict[str, object] = {}
 
     # export refs
     _export_a16_val    = [True]
@@ -832,7 +835,10 @@ def session_page(session_id: str) -> None:
                         _grade_sel = ui.select(
                             options=_GRADES, value=_combine_grade_val[0], label='Grade',
                         ).style('min-width:110px').props('dense outlined')
-                        _grade_sel.on_value_change(lambda e: _combine_grade_val.__setitem__(0, e.value))
+                        _grade_sel.on_value_change(
+                            lambda e: (_combine_grade_val.__setitem__(0, e.value),
+                                       _highlight_swatch(e.value))
+                        )
                         _grade_sel_ref = [_grade_sel]
 
                         # Export controls — inline, shown only on the Export stage
@@ -854,6 +860,16 @@ def session_page(session_id: str) -> None:
                     if not is_new:
                         _nbtn.set_enabled(False)
                     next_btn_ref[0] = _nbtn
+
+                # ── Grade swatch strip — shown at the Combine stage, built lazily ─
+                if not is_new:
+                    _sw_row = ui.row().style(
+                        'flex-shrink:0;gap:0.55rem;padding:0.45rem 0.9rem;align-items:flex-start;'
+                        'background:#0f0f0f;border-bottom:1px solid #1a1a1a;flex-wrap:nowrap;'
+                        'overflow-x:auto'
+                    )
+                    _swatch_row_ref[0] = _sw_row
+                    _sw_row.set_visibility(False)
 
                 # ── Progress strip — above player. Per-clip proxy/scan bars at
                 #    page load; combine bar filled dynamically by its watcher. ──
@@ -1023,6 +1039,62 @@ def session_page(session_id: str) -> None:
         if player_tag_ref[0]:
             player_tag_ref[0].set_text(text)
 
+    # ── Grade swatches ─────────────────────────────────────────────────────────
+
+    def _swatch_style(selected: bool) -> str:
+        bc = '#ff8c00' if selected else '#2a2a2a'
+        return (f'border:2px solid {bc};border-radius:4px;overflow:hidden;cursor:pointer;'
+                'flex-shrink:0;background:#161616;padding:0')
+
+    def _highlight_swatch(grade: str) -> None:
+        for g, card in _swatch_cards.items():
+            card.style(replace=_swatch_style(g == grade))
+
+    def _select_grade(grade: str) -> None:
+        # set_value triggers the select's on_value_change → updates val + highlight
+        _grade_sel_ref[0].set_value(grade)
+
+    async def _ensure_swatches() -> None:
+        sw = _swatch_row_ref[0]
+        if sw is None: return
+        if _swatch_built[0]:
+            sw.set_visibility(True)
+            return
+        src = still_path if still_path.exists() else None
+        if src is None:
+            for mid, cid, *_ in mark_data:
+                p = config.THUMB_DIR / cid / f'mark_{mid}.jpg'
+                if p.exists():
+                    src = p
+                    break
+        if src is None:
+            return
+        from nicegui import run as ng_run
+        from axedup.processing.assembly import render_grade_swatches
+        try:
+            paths = await ng_run.io_bound(render_grade_swatches, src, config.STILL_DIR, session_id)
+        except Exception as exc:
+            ui.notify(f'Grade preview failed: {exc}', type='warning')
+            return
+        _swatch_built[0] = True
+        with sw:
+            for g in _GRADES:
+                p = paths.get(g)
+                if not p or not p.exists():
+                    continue
+                card = ui.element('div').style(_swatch_style(g == _combine_grade_val[0]))
+                with card:
+                    ui.image(f'/stills/{p.name}').style(
+                        'width:104px;height:58px;display:block;object-fit:cover'
+                    )
+                    ui.label(g).style(
+                        'font-size:0.62rem;color:#999;text-align:center;width:100%;'
+                        'padding:1px 0 2px'
+                    )
+                card.on('click', lambda g=g: _select_grade(g))
+                _swatch_cards[g] = card
+        sw.set_visibility(True)
+
     def _set_active_row(stage_id: str) -> None:
         """Highlight one stage-table row as active, clear all others."""
         # Sub-row stages
@@ -1049,6 +1121,12 @@ def session_page(session_id: str) -> None:
         _exporting = _etask is not None and not _etask.done
         for _c in _export_ctl_refs:
             _c.set_visibility(stage == 'export' and not _exporting)
+        # Grade swatch strip — visible at Combine; rendered lazily on first show
+        if _swatch_row_ref[0]:
+            if stage == 'combine' and not combining_lock[0]:
+                ui.timer(0.05, _ensure_swatches, once=True)
+            else:
+                _swatch_row_ref[0].set_visibility(False)
 
         if stage == 'input':
             _set_next_btn('Working copy ready →' if clip_ids else '(load footage first)', bool(clip_ids), None)
