@@ -77,21 +77,21 @@
           <span class="step-num">3</span>
           <div>
             <strong>Detecting scenes…</strong>
-            <p>Optical flow analysis finds scene changes and scores each segment by motion intensity.</p>
+            <p>Optical flow analysis finds scene changes and scores each segment by motion intensity. Sustained low-motion sections are flagged as dull and skipped by default.</p>
           </div>
         </li>
         <li>
           <span class="step-num">4</span>
           <div>
             <strong>Finding clips…</strong>
-            <p>Activity peaks are identified and ranked by motion intensity.</p>
+            <p>Activity peaks are identified using motion intensity and audio spikes — crowd noise, impacts, and loud moments boost a clip's score.</p>
           </div>
         </li>
         <li>
           <span class="step-num">5</span>
           <div>
             <strong>Select clips</strong>
-            <p>Browse thumbnails sorted by activity score. Mark which moments to keep or skip.</p>
+            <p>Browse clips sorted by activity score. Dull sections are shown separately and can be rescued if they contain something worth keeping.</p>
           </div>
         </li>
         <li>
@@ -139,10 +139,6 @@
         <div class="roadmap-card">
           <strong>Telemetry scoring</strong>
           <p>GoPro GPMF and DJI SRT data (speed, GPS, altitude) folded into clip ranking alongside motion.</p>
-        </div>
-        <div class="roadmap-card">
-          <strong>Audio spike detection</strong>
-          <p>Crowd noise, impact sounds, and audio peaks used as additional signals for highlight detection.</p>
         </div>
         <div class="roadmap-card">
           <strong>Title cards</strong>

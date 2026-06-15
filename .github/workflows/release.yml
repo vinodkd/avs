@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-22.04   # oldest LTS = broadest AppImage compatibility
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -42,7 +42,7 @@ jobs:
         run: bash packaging/build_appimage.sh
 
       - name: Upload AppImage to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/AxEdUp-*.AppImage
           generate_release_notes: true
@@ -54,9 +54,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -74,7 +74,7 @@ jobs:
         run: .\packaging\build_windows.ps1
 
       - name: Upload installer to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/AxEdUp-*-Setup.exe
         env:
@@ -85,9 +85,9 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -105,7 +105,7 @@ jobs:
         run: bash packaging/build_macos.sh
 
       - name: Upload DMG to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/AxEdUp-*.dmg
         env:
