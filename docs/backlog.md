@@ -158,11 +158,9 @@ appear (→ CLI — power users).
 
 ## Tooling / CI
 
-- [ ] **Bump GitHub Actions to Node 24-compatible versions** — v0.1.4 release run
-  warned that `actions/checkout@v4`, `actions/setup-python@v5`, and
-  `softprops/action-gh-release@v2` run on deprecated Node 20; GitHub forces Node 24
-  from 2026-06-16 (removal 2026-09-16). Update pins in `release.yml` (and check
-  `pages.yml`) before the next release.
+- [x] ~~**Bump GitHub Actions to Node 24-compatible versions**~~ — shipped 2026-06-14:
+  checkout v6, setup-python v6, action-gh-release v3, configure-pages v6,
+  upload-pages-artifact v5, deploy-pages v5. Node 20 removal 2026-09-16.
 
 ---
 
