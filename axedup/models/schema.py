@@ -95,6 +95,7 @@ class TelemetryPoint(Base):
     accel_magnitude: Mapped[float | None]    = mapped_column(Float, nullable=True)
     motion_intensity: Mapped[float | None]       = mapped_column(Float, nullable=True)
     motion_intensity_quick: Mapped[float | None] = mapped_column(Float, nullable=True)
+    audio_energy: Mapped[float | None]           = mapped_column(Float, nullable=True)
 
     clip: Mapped["Clip"] = relationship(back_populates="telemetry")
 

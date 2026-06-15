@@ -101,6 +101,19 @@ def settings_page() -> None:
                                     value=prefs['dull_min_s']).style('width:140px').tooltip(
                     'Unclaimed footage between marks shorter than this is not shown as a dull section')
 
+            ui.label('Audio scoring').style(
+                'color:#999;font-size:0.78rem;font-weight:600;margin-top:0.7rem'
+            )
+            ui.label('Spikes are loud moments relative to each clip\'s own noise floor. '
+                     'Marks containing a spike score higher; spikes outside any mark '
+                     'become their own candidates (mic icon).').style(_SUB)
+            with ui.row().style('gap:1rem;flex-wrap:wrap;align-items:center'):
+                _p_ak = ui.number(label='Spike sensitivity (k)', min=1.0, max=10.0, step=0.5,
+                                  value=prefs['audio_spike_k']).style('width:160px').tooltip(
+                    'Lower = more spikes detected. Spike when energy > median + k × MAD')
+                _p_ab = ui.number(label='Score boost (×)', min=1.0, max=3.0, step=0.05,
+                                  value=prefs['audio_boost']).style('width:140px')
+
             def _save_prefs() -> None:
                 save_prefs({
                     'default_sport': _p_sport.value,
@@ -113,6 +126,8 @@ def settings_page() -> None:
                     'boring_min_s': float(_p_bmin.value or 8.0),
                     'boring_gap_s': float(_p_bgap.value or 2.0),
                     'dull_min_s': float(_p_dmin.value or 3.0),
+                    'audio_spike_k': float(_p_ak.value or 3.0),
+                    'audio_boost': float(_p_ab.value or 1.25),
                 })
                 ui.notify('Preferences saved', type='positive')
 

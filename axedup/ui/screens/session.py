@@ -53,12 +53,14 @@ def _sport_order(sports: list[str]) -> list[str]:
     return sorted(sports, key=lambda s: (s != 'moto', s))
 
 _PROXY_STAGES = ['proxy']
-_SCAN_STAGES  = ['scenes', 'motion']
-_STAGE_LABEL  = {'proxy': 'Working copy', 'scenes': 'Scene cuts', 'motion': 'Optical flow'}
+_SCAN_STAGES  = ['scenes', 'motion', 'audio']
+_STAGE_LABEL  = {'proxy': 'Working copy', 'scenes': 'Scene cuts',
+                 'motion': 'Optical flow', 'audio': 'Audio energy'}
 _STAGE_BYLINE = {
     'proxy':  '480p transcode — originals are only read once',
     'scenes': 'Finds camera cuts and hard transitions',
     'motion': 'Quick: 1fps sample  ·  Full: every frame',
+    'audio':  'RMS loudness from proxy audio',
 }
 
 _HDR_H    = 46
@@ -285,8 +287,8 @@ _PICK_STYLE = {
 def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = None) -> str:
     statuses = statuses or {}
     marks_by_clip: dict = {}
-    for mid, cid, in_s, out_s, *_ in mark_data:
-        marks_by_clip.setdefault(cid, []).append((mid, in_s, out_s))
+    for mid, cid, in_s, out_s, _score, src in mark_data:
+        marks_by_clip.setdefault(cid, []).append((mid, in_s, out_s, src))
     total_dur = sum(d for _, _, d in clip_info if d)
     if   total_dur <= 60:   tick_iv = 10
     elif total_dur <= 300:  tick_iv = 30
@@ -324,12 +326,14 @@ def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = Non
                 f'{tick_label}</span></div>'
             )
             t += tick_iv
-        for mid, in_s, out_s in marks_by_clip.get(cid, []):
+        for mid, in_s, out_s, src in marks_by_clip.get(cid, []):
             ip = in_s / dur_s * 100
             wp = (out_s - in_s) / dur_s * 100
             st = statuses.get(mid, 'in')
             color, hatch, icon = _PICK_STYLE[st]
             tip = f'{_tsfmt(in_s)}–{_tsfmt(out_s)} ({out_s-in_s:.1f}s)'
+            if src == 'audio_spike':
+                tip += ' — found by audio'
             if st == 'skip':
                 tip += ' — flagged boring, click to include'
             elif st == 'dull':
@@ -514,6 +518,12 @@ def session_page(session_id: str) -> None:
                 .all()
             ) if clip_ids else []
             mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
+            from axedup.processing.audio import clip_audio_spikes
+            from axedup.prefs import get_prefs as _get_prefs
+            _spike_k = float(_get_prefs().get('audio_spike_k', 3.0))
+            _audio_spikes: dict[str, list[float]] = {
+                cid: clip_audio_spikes(cid, _spike_k) for cid in clip_ids
+            }
             rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
             boring_ids   = {m.id for m in marks_all if m.status == MarkStatus.BORING}
             dull_ids     = {m.id for m in marks_all if m.status == MarkStatus.DULL}
@@ -1386,8 +1396,15 @@ def session_page(session_id: str) -> None:
             ts_label = f'{_tsfmt(in_s)}–{_tsfmt(out_s)}'
             st = _statuses.get(mid, 'in')
             bc, _, bi = _PICK_STYLE[st]
+            spikes = _audio_spikes.get(cid, [])
+            has_audio = (source == 'audio_spike' or
+                         any(in_s <= t <= out_s for t in spikes))
             hint = (' title="Flagged boring — click to include"' if st == 'skip' else
-                    ' title="Dull (unclassified) — click to include"' if st == 'dull' else '')
+                    ' title="Dull (unclassified) — click to include"' if st == 'dull' else
+                    ' title="Found by audio"' if has_audio else '')
+            mic = ('<span class="material-icons" style="font-size:0.72rem;color:#6a9ab8;'
+                   'vertical-align:text-bottom;margin-left:2px">mic</span>'
+                   if has_audio else '')
             parts.append(
                 f'<div id="card-{mid}" onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})"{hint} '
                 f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
@@ -1398,7 +1415,7 @@ def session_page(session_id: str) -> None:
                 f'display:flex;align-items:center;justify-content:center;'
                 f'font-size:0.5rem;color:#fff;font-weight:bold;pointer-events:none">{bi}</div>'
                 f'<div style="padding:0.2rem 0.35rem">'
-                f'<div style="color:#888;font-size:0.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ts_label}</div>'
+                f'<div style="color:#888;font-size:0.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ts_label}{mic}</div>'
                 f'<div style="color:#555;font-size:0.58rem">{score:.2f}</div>'
                 f'</div></div>'
             )
@@ -1505,13 +1522,17 @@ window.axedupCardClick = function(mid, cid, ins) {{
         def _run():
             try:
                 from axedup.processing.analysis import run_motion_scan, extract_mark_thumbnails
+                from axedup.processing.audio import run_audio_scan
                 from axedup.processing.peaks import (
-                    detect_peaks, detect_boring_regions, detect_dull_gaps,
+                    detect_peaks, detect_audio_spikes,
+                    detect_boring_regions, detect_dull_gaps,
                 )
                 run_motion_scan(session_id, motion_method=method, on_event=_on_event)
+                run_audio_scan(session_id, on_event=_on_event)
                 state.finish_task(f'{session_id}_scan')
                 state.start_task(f'{session_id}_highlights')
                 detect_peaks(session_id, on_event=_on_event, motion_method=method)
+                detect_audio_spikes(session_id, on_event=_on_event)
                 detect_boring_regions(session_id, on_event=_on_event, motion_method=method)
                 detect_dull_gaps(session_id, on_event=_on_event)
                 state.finish_task(f'{session_id}_highlights')
@@ -1526,6 +1547,16 @@ window.axedupCardClick = function(mid, cid, ins) {{
 
         threading.Thread(target=_run, daemon=True).start()
         _scan_started[0] = True
+        # Create stage bars if the page loaded before the scan started (bar_refs empty)
+        if strip_ref[0] and not bar_refs:
+            with strip_ref[0]:
+                for cid, fname, _ in clip_info:
+                    bar_refs.setdefault(cid, {})
+                    for stage in _SCAN_STAGES:
+                        el = ui.html(_bar_html(StageState(), _STAGE_LABEL[stage], stage, method),
+                                     sanitize=False)
+                        bar_refs[cid][stage] = el
+            strip_ref[0].set_visibility(True)
         if _timer_ref[0] is not None:
             _timer_ref[0].active = True
         _update_action_bar_for_stage('scan')

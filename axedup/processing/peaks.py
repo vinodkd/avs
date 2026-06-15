@@ -50,9 +50,17 @@ def detect_peaks(
             .all()
         )
 
+    from axedup.prefs import get_prefs
+    from axedup.processing.audio import clip_audio_spikes
+    prefs = get_prefs()
+    spike_k     = float(prefs.get("audio_spike_k", 3.0))
+    audio_boost = float(prefs.get("audio_boost", 1.25))
+
     total = 0
     for clip in clips:
-        n = _detect_clip_peaks(clip, motion_threshold, motion_method)
+        spike_ts = clip_audio_spikes(clip.id, spike_k)
+        n = _detect_clip_peaks(clip, motion_threshold, motion_method,
+                               spike_ts=spike_ts, audio_boost=audio_boost)
         _notify(clip.id, 'peaks', 'done', f"{clip.filename}: {n} candidate(s)", None, None)
         total += n
 
@@ -63,8 +71,10 @@ def detect_peaks(
 # Per-clip peak detection
 # ---------------------------------------------------------------------------
 
-def _detect_clip_peaks(clip: Clip, motion_threshold: float, motion_method: str = "proxy") -> int:
-    """Find peaks in this clip's motion signal and write Mark candidates."""
+def _detect_clip_peaks(clip: Clip, motion_threshold: float, motion_method: str = "proxy",
+                       spike_ts: list[float] | None = None, audio_boost: float = 1.0) -> int:
+    """Find peaks in this clip's motion signal and write Mark candidates.
+    Regions containing an audio spike get their score multiplied by audio_boost."""
     source = "motion_peak_jpg" if motion_method == "jpg" else "motion_peak"
 
     with get_session() as db:
@@ -102,6 +112,12 @@ def _detect_clip_peaks(clip: Clip, motion_threshold: float, motion_method: str =
 
     regions = _peaks_to_regions(peak_indices, timestamps, intensities, clip.duration_s)
     regions = _merge_overlapping(regions)
+
+    if spike_ts and audio_boost != 1.0:
+        regions = [
+            (a, b, min(1.0, s * audio_boost) if any(a <= t <= b for t in spike_ts) else s)
+            for a, b, s in regions
+        ]
 
     marks = [
         Mark(
@@ -410,4 +426,65 @@ def detect_dull_gaps(session_id: str, on_event=None) -> int:
                 ])
         _notify(clip.id, 'dull', 'done', f"{clip.filename}: {len(gaps)} dull gap(s)", None, None)
         total += len(gaps)
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Audio-only spike marks — loud moments the camera didn't move for
+# ---------------------------------------------------------------------------
+
+AUDIO_SOURCE = "audio_spike"
+_AUDIO_MARK_SCORE = 0.6  # middle tier: louder than ordinary, unproven by motion
+
+
+def detect_audio_spikes(session_id: str, on_event=None) -> int:
+    """
+    Create candidate marks around audio spikes that fall outside every existing
+    mark window. Runs after detect_peaks (motion marks claim their spikes via
+    score boost) and before boring/dull detection so those treat audio marks
+    as claimed footage. Returns the number of marks created.
+    """
+    from axedup.prefs import get_prefs
+    from axedup.processing.audio import clip_audio_spikes
+
+    _notify = on_event or _NOOP
+    spike_k = float(get_prefs().get("audio_spike_k", 3.0))
+
+    with get_session() as db:
+        clips = (
+            db.query(Clip)
+            .filter(Clip.session_id == session_id)
+            .order_by(Clip.clip_order)
+            .all()
+        )
+
+    total = 0
+    for clip in clips:
+        with get_session() as db:
+            db.query(Mark).filter(
+                Mark.clip_id == clip.id,
+                Mark.source == AUDIO_SOURCE,
+            ).delete()
+            occupied = [
+                (m.in_s, m.out_s) for m in
+                db.query(Mark).filter(Mark.clip_id == clip.id).all()
+            ]
+        free = [t for t in clip_audio_spikes(clip.id, spike_k)
+                if not any(a <= t <= b for a, b in occupied)]
+        regions = _merge_overlapping([
+            (max(0.0, t - PRE_PADDING_S),
+             min(clip.duration_s or t + POST_PADDING_S, t + POST_PADDING_S),
+             _AUDIO_MARK_SCORE)
+            for t in free
+        ])
+        if regions:
+            with get_session() as db:
+                db.add_all([
+                    Mark(clip_id=clip.id, in_s=round(a, 2), out_s=round(b, 2),
+                         score=s, source=AUDIO_SOURCE, status=MarkStatus.CANDIDATE)
+                    for a, b, s in regions
+                ])
+        _notify(clip.id, 'audio_marks', 'done',
+                f"{clip.filename}: {len(regions)} audio mark(s)", None, None)
+        total += len(regions)
     return total

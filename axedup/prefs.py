@@ -19,6 +19,9 @@ DEFAULTS: dict = {
     "boring_min_s": 8.0,              # dull stretches shorter than this are pacing, not boredom
     "boring_gap_s": 2.0,              # blips above the line shorter than this don't break a region
     "dull_min_s": 3.0,                # unclaimed gaps shorter than this aren't worth a mark
+    # Audio scoring
+    "audio_spike_k": 3.0,             # spike = energy > median + k × MAD of the clip's own baseline
+    "audio_boost": 1.25,              # score multiplier for marks containing an audio spike
 }
 
 

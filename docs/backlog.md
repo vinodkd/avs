@@ -22,7 +22,7 @@ appear (→ CLI — power users).
 
 ## Review / clip selection
 
-- [ ] **Manual mark creation from dead zones** — gaps between system-detected marks in the timeline should be clickable and draggable to create a new mark. User should be able to include footage the system didn't flag. (Prerequisite for boring-region feature below.)
+- [ ] **Manual mark creation / precision sub-selection** — ~~largely superseded by dull sections~~: every unclaimed gap ≥ `dull_min_s` is now a rescuable dull mark, covering the core "include footage the system didn't flag" use case. Remaining gap: gaps shorter than `dull_min_s` stay black and unclickable; rescuing a long dull section includes all of it rather than just the interesting moment. Demoted to low priority — revisit if users need precision trimming within dull sections.
 - [x] ~~**Boring-region detection and auto-rejection** — flag low-motion segments as
   `MarkStatus.BORING`, third bucket in counts, user-overridable from the timeline.~~
   Shipped 2026-06-12: motion-based detection in `peaks.py` (smoothed motion below a
@@ -36,6 +36,16 @@ appear (→ CLI — power users).
 ---
 
 ## Session UI
+
+- [ ] **Show source filename everywhere** — the source video filename should be visible
+  on the home page session list and in the session page header at all times. Currently
+  neither surface shows it, making it ambiguous which file is being processed when
+  multiple sessions exist. Noted 2026-06-14.
+
+- [ ] **Step navigation from left nav** — clicking a completed step header in the left nav
+  should jump to that step and allow proceeding forward from there. Currently the UI only
+  advances linearly; a `ready` session should allow jumping back to Scan results or Pick
+  without re-running anything. Noted 2026-06-14.
 
 - [ ] **Option to hide dull cards in review** — dull sections render as cards like
   everything else; fine while sessions are short (the card area scrolls), but
@@ -57,8 +67,12 @@ appear (→ CLI — power users).
   `app_settings` DB table (consumed as session-page defaults), profile editor with
   save-as-DB-row / reset-deletes-row semantics.
 - [ ] **Custom sports (full profile CRUD)** — add/rename/delete sports beyond the seven
-  built-ins. Same Profile table, no new storage; mainly UI + a guard against deleting a
-  sport that sessions reference. Deferred 2026-06-12 as not yet needed.
+  built-ins. Requires DB to become the authoritative sport list (not `DEFAULT_PROFILES`):
+  seed all seven built-ins at `init_db()` time with `is_default=True, is_active=True`;
+  add `display_name` column to `Profile` (replaces hardcoded `DISPLAY_NAMES` dict, needed
+  for user-created sport names); soft-delete via `is_active=False` for built-ins that
+  sessions reference; hard-delete for user-created sports with no session references.
+  All sport list queries then read from DB. Deferred 2026-06-12 as not yet needed.
 
 ---
 
@@ -81,6 +95,13 @@ appear (→ CLI — power users).
   - [x] ~~Peak detection runs per-method, marks tagged `motion_peak_proxy` vs `motion_peak_jpg`~~
   - [x] ~~Review shows two sections when both sets of marks exist~~ — superseded: one
     review set; Combine has a source filter (all / still-frame picks / motion picks)
+
+- [ ] **Persist audio_boosted flag on Mark** — currently the mic icon on motion marks
+  that contain an audio spike is computed at render time by re-querying spike timestamps
+  on every page load. Make it durable: add `audio_boosted: bool` column to `marks` table
+  (migration + schema change), set it in `_detect_clip_peaks()` when boost is applied.
+  Card rendering then reads the flag directly instead of re-checking telemetry.
+  Requires a rescan of existing sessions to populate the flag.
 
 - [ ] Pipeline timing
   - [ ] Add `analyzed_at`, `assembled_at`, `exported_at` timestamps to `Session`

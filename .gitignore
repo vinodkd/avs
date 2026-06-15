@@ -42,3 +42,6 @@ htmlcov/
 
 # OS
 Thumbs.db
+
+# Local session context (not for version control)
+CONTEXT.md

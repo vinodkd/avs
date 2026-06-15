@@ -6,11 +6,9 @@ from nicegui import app as nicegui_app, run, ui
 import webview
 
 from axedup.models.db import get_session as db_session
-from axedup.models.schema import Profile
+from axedup.presets.sports import DEFAULT_PROFILES, display_name
 from axedup.ui import state
 from axedup.ui.layout import sidebar
-
-_SPORT_FALLBACK = ['mtb', 'surf', 'ski', 'cycling', 'moto', 'trail', 'skydive']
 
 
 @ui.page('/load')
