@@ -19,7 +19,7 @@ def start(port: int = 8765) -> None:
     app.add_media_files('/previews', str(config.PREVIEW_DIR))
 
     # Import screens to register their @ui.page routes before ui.run()
-    from axedup.ui.screens import cut, home, load, pick, save, scan, session, settings  # noqa: F401
+    from axedup.ui.screens import home, session, settings  # noqa: F401
 
     # When the native window closes, destroy pywebview windows (releases IPC semaphores)
     # then SIGTERM ourselves so uvicorn shuts down cleanly and the terminal is freed.
