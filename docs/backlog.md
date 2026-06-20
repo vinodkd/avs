@@ -6,17 +6,19 @@ Source of truth for priorities and pending work. Struck-through items are commit
 
 ## Current priorities (in order)
 
-1. **Signal enrichment** — audio spike detection, combined scoring (motion +
-   telemetry + audio), boring-region flagging, manual mark creation
-   (→ Review / clip selection, Analysis pipeline → Audio scoring)
-2. **Redesign leftovers** — home page style pass; delete superseded screens
-   (`load.py`, `scan.py`, `pick.py`, `cut.py`, `save.py`)
+1. **Session UI usability** — show source filename everywhere; step navigation
+   from left nav (jump to completed steps without re-running).
+   (→ Session UI)
+2. **Analysis robustness** — persist `audio_boosted` flag on `Mark`; crash/restart
+   safety for partial proxy and scan builds.
+   (→ Analysis pipeline)
+3. **Remaining audio scoring** — WebRTC VAD for speech detection + score boost.
+   (→ Analysis pipeline → Audio scoring)
 
-Done: installable app — v0.1.4 released with AppImage / Setup.exe / dmg via
-GitHub Releases; UI redesign v2 in the same release; Session UI follow-ups
-(grade swatches, profile popover, settings screen) shipped 2026-06-12.
-Demoted: CLI refactor to the event-based backend — revisit if/when power users
-appear (→ CLI — power users).
+Done: v0.1.5 released 2026-06-14 — audio scoring (RMS + spike detection),
+dull/boring-region detection, settings screen, grade swatches, sport profile
+popover, superseded screens removed, GH Actions bumped to Node 24.
+Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power users).
 
 ---
 
