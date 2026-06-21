@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for AxEdUp desktop app.  Cross-platform: Linux, Windows, macOS.
+PyInstaller spec for aVs desktop app.  Cross-platform: Linux, Windows, macOS.
 
 Build with:
-    pyinstaller axedup.spec
+    pyinstaller avs.spec
 
-Output (Linux/Windows): dist/axedup/axedup[.exe]  (onedir mode)
-Output (macOS):         dist/AxEdUp.app             (app bundle)
+Output (Linux/Windows): dist/avs/avs[.exe]  (onedir mode)
+Output (macOS):         dist/aVs.app             (app bundle)
 """
 import re as _re
 import sys as _sys
@@ -18,20 +18,20 @@ ROOT = Path(SPECPATH)
 # Read version from source so the macOS bundle info_plist stays in sync
 _VERSION = _re.search(
     r'__version__\s*=\s*["\']([^"\']+)["\']',
-    (ROOT / 'axedup' / '__init__.py').read_text(),
+    (ROOT / 'avs' / '__init__.py').read_text(),
 ).group(1)
 
 # ── Data files ────────────────────────────────────────────────────────────────
 datas = []
 
 # Alembic migration scripts (needed for first-run DB setup)
-datas += [(str(ROOT / 'axedup' / 'models' / 'migrations'), 'axedup/models/migrations')]
+datas += [(str(ROOT / 'avs' / 'models' / 'migrations'), 'avs/models/migrations')]
 
 # alembic.ini (bundled for reference)
 datas += [(str(ROOT / 'alembic.ini'), '.')]
 
 # Sport presets and LUTs
-datas += [(str(ROOT / 'axedup' / 'presets'), 'axedup/presets')]
+datas += [(str(ROOT / 'avs' / 'presets'), 'avs/presets')]
 
 # imageio-ffmpeg bundled binary
 datas += collect_data_files('imageio_ffmpeg')
@@ -67,9 +67,9 @@ hiddenimports += ['appdirs', 'pkg_resources', 'pkg_resources.extern']
 
 # ── Icon ──────────────────────────────────────────────────────────────────────
 if _sys.platform == 'win32':
-    _icon_path = ROOT / 'packaging' / 'axedup.ico'
+    _icon_path = ROOT / 'packaging' / 'avs.ico'
 elif _sys.platform == 'darwin':
-    _icon_path = ROOT / 'packaging' / 'axedup.icns'
+    _icon_path = ROOT / 'packaging' / 'avs.icns'
 else:
     _icon_path = None
 
@@ -80,7 +80,7 @@ _upx = _sys.platform != 'win32'
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 a = Analysis(
-    [str(ROOT / 'axedup' / 'main.py')],
+    [str(ROOT / 'avs' / 'main.py')],
     pathex=[str(ROOT)],
     binaries=[],
     datas=datas,
@@ -102,7 +102,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='axedup',
+    name='avs',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -122,19 +122,19 @@ coll = COLLECT(
     strip=False,
     upx=_upx,
     upx_exclude=[],
-    name='axedup',
+    name='avs',
 )
 
 # macOS: wrap COLLECT output in a .app bundle
 if _sys.platform == 'darwin':
     app = BUNDLE(
         coll,
-        name='AxEdUp.app',
+        name='aVs.app',
         icon=_icon,
-        bundle_identifier='org.vinodkd.axedup',
+        bundle_identifier='org.vinodkd.avs',
         info_plist={
-            'CFBundleName': 'AxEdUp',
-            'CFBundleDisplayName': 'AxEdUp',
+            'CFBundleName': 'aVs',
+            'CFBundleDisplayName': 'aVs',
             'CFBundleShortVersionString': _VERSION,
             'CFBundleVersion': _VERSION,
             'NSHighResolutionCapable': True,

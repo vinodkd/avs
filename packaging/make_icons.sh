@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate axedup.ico, axedup.icns, and axedup.png from packaging/icon.svg.
+# Generate avs.ico, avs.icns, and avs.png from packaging/icon.svg.
 #
 # Prerequisites (already available on dev machine):
 #   inkscape, imagemagick (convert), python3 + Pillow
@@ -28,8 +28,8 @@ for SIZE in 16 24 32 48 64 128 256 512; do
     echo "    ${SIZE}x${SIZE}"
 done
 
-# ── 2. axedup.ico — multi-resolution Windows icon ─────────────────────────────
-echo "==> Building axedup.ico..."
+# ── 2. avs.ico — multi-resolution Windows icon ─────────────────────────────
+echo "==> Building avs.ico..."
 convert \
     "$TMP/icon-256.png" \
     "$TMP/icon-128.png" \
@@ -37,24 +37,24 @@ convert \
     "$TMP/icon-48.png"  \
     "$TMP/icon-32.png"  \
     "$TMP/icon-16.png"  \
-    axedup.ico
+    avs.ico
 
-# ── 3. axedup.icns — macOS bundle icon ────────────────────────────────────────
-echo "==> Building axedup.icns..."
+# ── 3. avs.icns — macOS bundle icon ────────────────────────────────────────
+echo "==> Building avs.icns..."
 python3 - "$TMP" <<'PYEOF'
 import sys
 from PIL import Image
 
 tmp = sys.argv[1]
 img = Image.open(f"{tmp}/icon-512.png").convert("RGBA")
-img.save("axedup.icns", format="icns",
+img.save("avs.icns", format="icns",
          sizes=[(16,16),(32,32),(48,48),(128,128),(256,256),(512,512)])
 PYEOF
 
-# ── 4. axedup.png — 512px for AppImage ───────────────────────────────────────
-echo "==> Copying axedup.png (512px for AppImage)..."
-cp "$TMP/icon-512.png" axedup.png
+# ── 4. avs.png — 512px for AppImage ───────────────────────────────────────
+echo "==> Copying avs.png (512px for AppImage)..."
+cp "$TMP/icon-512.png" avs.png
 
 echo ""
 echo "==> Done:"
-ls -lh axedup.ico axedup.icns axedup.png
+ls -lh avs.ico avs.icns avs.png

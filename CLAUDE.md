@@ -1,4 +1,4 @@
-# AxEdUp — Claude Code Instructions
+# aVs — Claude Code Instructions
 
 ## Project Status: Active Development (post-prototype)
 
@@ -10,7 +10,7 @@ do not duplicate the list here.
 
 ## Project Overview
 
-AxEdUp is a desktop tool for editing and uploading action camera footage. It reads video files from an SD card or local folder, analyzes them using computer vision and telemetry data, guides the user through a review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload.
+aVs is a desktop tool for editing and uploading action camera footage. It reads video files from an SD card or local folder, analyzes them using computer vision and telemetry data, guides the user through a review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload.
 
 See `/brainstorm/` for full design history and decision rationale.
 See `/docs/design.md` for current architecture and build plan.
@@ -36,7 +36,7 @@ Do not defer doc updates to a separate task. Update them in the same pass as the
 ```
 /docs/              — requirements and design docs (keep current)
 /brainstorm/        — decision history and research (read-only reference)
-/axedup/            — Python package
+/avs/            — Python package
   /processing/      — ingest, telemetry, analysis, assembly, export
   /models/          — SQLAlchemy ORM models
   /presets/         — sport profiles, LUT files, bundled music
@@ -69,7 +69,7 @@ run.py              — convenience entry point
 - All video analysis runs on 480p proxy files, not originals
 - FFmpeg calls go through `ffmpeg-python` — no manual subprocess string construction
 - Database access via SQLAlchemy ORM — no raw SQL strings
-- One processing stage per module in `/axedup/processing/`
+- One processing stage per module in `/avs/processing/`
 - Original source files are never modified
 
 ## What's Out of Scope (do not build unless requirements change)
@@ -78,7 +78,7 @@ run.py              — convenience entry point
 - React or any JavaScript frontend
 - Camera WiFi / BLE integration
 - Direct platform upload (YouTube, Instagram, etc.) — deferred to post-v1, not permanently excluded
-- 360 footage (AxEdUp360)
+- 360 footage (aVs360)
 - Mobile / Android / iOS builds
 - Cloud processing or hosted backend
 - Multi-day trip session grouping

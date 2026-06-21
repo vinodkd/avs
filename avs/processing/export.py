@@ -11,9 +11,9 @@ from typing import Callable
 
 from rich.console import Console
 
-from axedup import config
-from axedup.models.db import get_session
-from axedup.models.schema import Export, Session, SessionStatus
+from avs import config
+from avs.models.db import get_session
+from avs.models.schema import Export, Session, SessionStatus
 
 # Target encode settings per aspect ratio
 _ENCODE_SETTINGS = {

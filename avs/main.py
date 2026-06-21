@@ -1,5 +1,5 @@
 """
-Packaged app entry point. Used by PyInstaller and the axedup-ui console script.
+Packaged app entry point. Used by PyInstaller and the avs-ui console script.
 Runs DB migrations before starting the UI so the schema is always current.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ def _run_migrations() -> None:
     if getattr(sys, "frozen", False):
         # Running inside a PyInstaller bundle
         bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-        migrations_dir = bundle_dir / "axedup" / "models" / "migrations"
+        migrations_dir = bundle_dir / "avs" / "models" / "migrations"
         cfg = Config()
         cfg.set_main_option("script_location", str(migrations_dir))
     else:
@@ -29,14 +29,14 @@ def _run_migrations() -> None:
 def main() -> None:
     _run_migrations()
 
-    from axedup import __version__
-    from axedup.models.db import init_db
+    from avs import __version__
+    from avs.models.db import init_db
     init_db()
 
-    from axedup.updater import check_for_updates
-    check_for_updates("vinodkd/axedup", __version__)
+    from avs.updater import check_for_updates
+    check_for_updates("vinodkd/avs", __version__)
 
-    from axedup.ui.app import start
+    from avs.ui.app import start
     start()
 
 

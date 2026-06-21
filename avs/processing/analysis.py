@@ -16,9 +16,9 @@ import numpy as np
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import ContentDetector
 
-from axedup import config
-from axedup.models.db import get_session
-from axedup.models.schema import Clip, Profile, Session, SessionStatus, TelemetryPoint
+from avs import config
+from avs.models.db import get_session
+from avs.models.schema import Clip, Profile, Session, SessionStatus, TelemetryPoint
 
 # Event callback type:
 #   clip_id:   str | None  — None = session-level event
@@ -131,7 +131,7 @@ def extract_mark_thumbnails(session_id: str, on_event: OnEvent | None = None) ->
     Returns total number of new thumbnails written.
     """
     _notify = on_event or _NOOP
-    from axedup.models.schema import Mark, MarkStatus
+    from avs.models.schema import Mark, MarkStatus
     with get_session() as db:
         clips = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
     total = 0
@@ -311,7 +311,7 @@ def run_detection(
                         for ts, intensity in motion_points
                     ])
         _notify(None, 'session', 'progress', None, i + 1, len(clips))
-    from axedup.processing.peaks import detect_peaks
+    from avs.processing.peaks import detect_peaks
     _notify(None, 'peaks', 'running', "Finding candidate moments…", None, None)
     total_candidates = detect_peaks(session_id, on_event=on_event, motion_method=motion_method)
     _notify(None, 'peaks', 'done', f"{total_candidates} candidate moment(s) found.", None, None)
@@ -355,7 +355,7 @@ def analyze_session(
         _analyze_clip(clip, profile, motion_method, _notify)
         _notify(None, 'session', 'progress', None, i + 1, len(clips))
 
-    from axedup.processing.peaks import detect_peaks
+    from avs.processing.peaks import detect_peaks
     _notify(None, 'peaks', 'running', "Detecting candidate marks…", None, None)
     total_candidates = detect_peaks(session_id, on_event=on_event, motion_method=motion_method)
     _notify(None, 'peaks', 'done', f"{total_candidates} candidate mark(s) generated.", None, None)

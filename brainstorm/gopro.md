@@ -53,7 +53,7 @@
 - GoPro Player can burn in some telemetry
 - Full GPMF spec is public — GPS, speed (m/s), altitude (m), 3-axis accel/gyro, camera orientation, audio levels
 
-## Strengths for AxEdUp
+## Strengths for aVs
 - Open GoPro API is well-documented — easiest to integrate of the three brands
 - GPMF telemetry is comprehensive and spec is public
 - Chapter file detection is a known problem with a known solution (join by session ID in metadata)

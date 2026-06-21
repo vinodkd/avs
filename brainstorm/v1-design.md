@@ -1,4 +1,4 @@
-# AxEdUp v1 — Design Document
+# aVs v1 — Design Document
 
 ## Summary
 
@@ -101,7 +101,7 @@ Video timecodes, clip metadata, telemetry data structures, and user profiles all
 
 ### Video Processing: FFmpeg
 
-The foundation of all video work in AxEdUp. Every operation routes through FFmpeg:
+The foundation of all video work in aVs. Every operation routes through FFmpeg:
 
 | Operation | FFmpeg approach |
 |---|---|
@@ -354,7 +354,7 @@ For v1 these refinements are handled via UI controls (buttons/sliders), not text
 
 ### Stage 7: Export
 
-User selects target platforms. FFmpeg re-encodes the approved preview to each target spec. Files saved to ~/Movies/AxEdUp/[session_date]/.
+User selects target platforms. FFmpeg re-encodes the approved preview to each target spec. Files saved to ~/Movies/aVs/[session_date]/.
 
 ---
 
@@ -368,7 +368,7 @@ SD Card
   → [User: Pass 2] → SQLite (accepted marks, user adjustments)
   → [Assembly] → File cache (preview MP4)
   → [User: Pass 3] → SQLite (refinement log)
-  → [Export] → ~/Movies/AxEdUp/ (final MP4s)
+  → [Export] → ~/Movies/aVs/ (final MP4s)
 ```
 
 ---
@@ -380,7 +380,7 @@ SD Card
 | Text/voice brief input | Requires LLM layer; v2 addition |
 | Camera WiFi import | Requires per-brand SDK work; add after SD card is solid |
 | Direct platform upload | Platform OAuth complexity; v2 |
-| 360 footage | Different pipeline entirely; AxEdUp360 |
+| 360 footage | Different pipeline entirely; aVs360 |
 | Windows support | Mac-first to validate; Tauri makes Windows easy to add later |
 | Multi-day trip sessions | Session grouping logic; v2 |
 | User preference learning | Need session history first; v2 |
@@ -395,7 +395,7 @@ SD Card
 2. **Scene detection threshold:** ContentDetector threshold=27 is PySceneDetect's default. Action footage (lots of motion blur, rapid cuts) may need tuning per sport.
 3. **Music licensing:** Which Creative Commons / royalty-free sources for the bundled tracks? Freesound.org, ccMixter, Free Music Archive are candidates.
 4. **LUT sources:** Create custom LUTs or adapt from open-source packs? Several well-regarded free LUT packs exist for each style.
-5. **Chapter file joining:** GoPro splits recordings into ~4GB chapter files. Should AxEdUp join these transparently into a single virtual clip for the UI, or expose them as separate clips?
+5. **Chapter file joining:** GoPro splits recordings into ~4GB chapter files. Should aVs join these transparently into a single virtual clip for the UI, or expose them as separate clips?
 
 ---
 

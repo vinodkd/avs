@@ -1,10 +1,10 @@
 import typer
 from rich.console import Console
 
-from axedup.models.db import init_db
+from avs.models.db import init_db
 
 app = typer.Typer(
-    name="axedup",
+    name="avs",
     help="Action camera footage editing tool.",
     no_args_is_help=True,
 )
@@ -70,7 +70,7 @@ def ingest(
 ) -> None:
     """Scan a folder or SD card and create a new session."""
     _startup()
-    from axedup.processing.ingest import ingest_folder
+    from avs.processing.ingest import ingest_folder
     from pathlib import Path
 
     source = Path(path)
@@ -84,7 +84,7 @@ def ingest(
     console.print(f"  Camera : {session.camera or 'unknown'}")
     console.print(f"  Clips  : {session.total_clips}")
     console.print(f"  Duration: {session.total_duration_s:.0f}s")
-    console.print(f"\nNext step: [bold]axedup analyze {session.id}[/bold]")
+    console.print(f"\nNext step: [bold]avs analyze {session.id}[/bold]")
 
 
 @app.command()
@@ -95,12 +95,12 @@ def analyze(
 ) -> None:
     """Run the full analysis pipeline on an imported session."""
     _startup()
-    from axedup.processing.analysis import analyze_session
+    from avs.processing.analysis import analyze_session
 
     motion_method = "jpg" if jpg else "proxy"
     console.print(f"[bold]Analyzing session[/bold] {session_id} … (motion: {motion_method})")
     analyze_session(session_id, motion_method=motion_method, on_event=_make_rich_handler(console))
-    console.print(f"\nNext step: [bold]axedup review {session_id}[/bold]")
+    console.print(f"\nNext step: [bold]avs review {session_id}[/bold]")
 
 
 @app.command()
@@ -109,11 +109,11 @@ def review(
 ) -> None:
     """Open candidate clip review in the browser (static HTML)."""
     _startup()
-    from axedup.processing.review import open_review
+    from avs.processing.review import open_review
 
     console.print(f"[bold]Opening review for session[/bold] {session_id} …")
     open_review(session_id, console=console)
-    console.print(f"\nNext step: [bold]axedup assemble {session_id}[/bold]")
+    console.print(f"\nNext step: [bold]avs assemble {session_id}[/bold]")
 
 
 @app.command()
@@ -123,11 +123,11 @@ def assemble(
 ) -> None:
     """Assemble accepted marks into a preview video."""
     _startup()
-    from axedup.processing.assembly import assemble_session
+    from avs.processing.assembly import assemble_session
 
     console.print(f"[bold]Assembling session[/bold] {session_id} …")
     assemble_session(session_id, console=console, source_filter=source)
-    console.print(f"\nNext step: [bold]axedup export {session_id}[/bold]")
+    console.print(f"\nNext step: [bold]avs export {session_id}[/bold]")
 
 
 @app.command()
@@ -141,7 +141,7 @@ def refine(
 ) -> None:
     """Re-assemble with adjustments (remove clips, swap music, change grade)."""
     _startup()
-    from axedup.processing.assembly import assemble_session
+    from avs.processing.assembly import assemble_session
 
     console.print(f"[bold]Refining session[/bold] {session_id} …")
     assemble_session(
@@ -162,7 +162,7 @@ def export(
 ) -> None:
     """Export the approved preview to final output files."""
     _startup()
-    from axedup.processing.export import export_session
+    from avs.processing.export import export_session
 
     console.print(f"[bold]Exporting session[/bold] {session_id} …")
     paths = export_session(session_id, aspects=aspect, console=console)
@@ -177,8 +177,8 @@ def sessions(
     """List all sessions."""
     _startup()
     from rich.table import Table
-    from axedup.models.db import get_session as db_session
-    from axedup.models.schema import Session as SessionModel
+    from avs.models.db import get_session as db_session
+    from avs.models.schema import Session as SessionModel
 
     with db_session() as s:
         q = s.query(SessionModel)
@@ -210,9 +210,9 @@ def sessions(
 def ui(
     port: int = typer.Option(8765, "--port", help="Port for the local web server"),
 ) -> None:
-    """Launch the AxEdUp desktop UI."""
+    """Launch the aVs desktop UI."""
     _startup()
-    from axedup.ui.app import start
+    from avs.ui.app import start
     start(port=port)
 
 
@@ -224,9 +224,9 @@ def profile(
 ) -> None:
     """Show or update a sport profile."""
     _startup()
-    from axedup.models.db import get_session as db_session
-    from axedup.models.schema import Profile
-    from axedup.presets.sports import DEFAULT_PROFILES
+    from avs.models.db import get_session as db_session
+    from avs.models.schema import Profile
+    from avs.presets.sports import DEFAULT_PROFILES
     from datetime import datetime
 
     with db_session() as s:

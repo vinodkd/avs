@@ -11,9 +11,9 @@ import subprocess
 
 import numpy as np
 
-from axedup import config
-from axedup.models.db import get_session
-from axedup.models.schema import Clip, TelemetryPoint
+from avs import config
+from avs.models.db import get_session
+from avs.models.schema import Clip, TelemetryPoint
 
 WINDOW_S = 1.0
 _RATE = 8000  # plenty for loudness; keeps the pipe small

@@ -34,20 +34,20 @@ Additionally fixed in 2026-06-08 session (not in original plan):
 
 ## File changes
 
-### 1. `axedup/config.py`
+### 1. `avs/config.py`
 
 - Add `STILL_DIR = CACHE_DIR / "stills"` after `JPEG_FRAMES_DIR` line
 - Add `STILL_DIR` to `ensure_dirs()` list
 - Remove `THUMB_INTERVAL = 5` line (no longer used)
 
-### 2. `axedup/ui/app.py`
+### 2. `avs/ui/app.py`
 
 Add after existing `/thumbs` line:
 ```python
 app.add_static_files('/stills', str(config.STILL_DIR))
 ```
 
-### 3. `axedup/ui/state.py`
+### 3. `avs/ui/state.py`
 
 Add `message: str | None = None` to `StageState` dataclass (after `total`).
 
@@ -55,7 +55,7 @@ In `update_clip_stage`, add `message: str | None = None` kwarg, pass it to `Stag
 
 In `get_clip_progress`, add `message=s.message` to the `StageState(...)` copy constructor.
 
-### 4. `axedup/processing/analysis.py`
+### 4. `avs/processing/analysis.py`
 
 **A. Add `extract_source_still(filepath: Path, dest: Path) -> None`** (new public function):
 ```python
@@ -80,7 +80,7 @@ def _extract_frame_at(proxy: Path, t: float, dest: Path) -> None:
 ```python
 def extract_mark_thumbnails(session_id: str, on_event: OnEvent | None = None) -> int:
     _notify = on_event or _NOOP
-    from axedup.models.schema import Mark, MarkStatus
+    from avs.models.schema import Mark, MarkStatus
     with get_session() as db:
         clips = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
     total = 0
@@ -153,7 +153,7 @@ motion_points = _compute_motion_jpeg(proxy_path,
 
 Same change needed in `run_detection` and `_analyze_clip` (for backward compat CLI path).
 
-### 5. `axedup/ui/screens/session.py`
+### 5. `avs/ui/screens/session.py`
 
 **A. `_STEPS`**: Remove the `thumbnails` tuple. Result:
 ```python
@@ -234,7 +234,7 @@ with db_session() as db:
     first_clip = db.query(Clip).filter(Clip.session_id == sid).order_by(Clip.clip_order).first()
 if first_clip:
     still_dest = config.STILL_DIR / f"{sid}_still.jpg"
-    from axedup.processing.analysis import extract_source_still
+    from avs.processing.analysis import extract_source_still
     await ng_run.io_bound(extract_source_still, Path(first_clip.filepath), still_dest)
 ```
 
@@ -263,7 +263,7 @@ Remove the thumbnail chain — just build proxy:
 ```python
 def _run_proxy():
     try:
-        from axedup.processing.analysis import build_proxy_only
+        from avs.processing.analysis import build_proxy_only
         build_proxy_only(sid, on_event=_on_event)
         state.finish_task(f'{sid}_proxy')
     except Exception as exc:
@@ -276,7 +276,7 @@ threading.Thread(target=_run_proxy, daemon=True).start()
 In `_run` inside `_start_scan`, after `state.finish_task(f'{session_id}_highlights')`:
 ```python
 state.start_task(f'{session_id}_thumbnails')
-from axedup.processing.analysis import extract_mark_thumbnails
+from avs.processing.analysis import extract_mark_thumbnails
 extract_mark_thumbnails(session_id, on_event=_on_event)
 state.finish_task(f'{session_id}_thumbnails')
 ```

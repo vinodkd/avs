@@ -1,4 +1,4 @@
-# AxEdUp: Existing Solutions & Competitive Landscape
+# aVs: Existing Solutions & Competitive Landscape
 
 ## The Gap
 
@@ -57,7 +57,7 @@ Each existing tool does some of these. None does all.
 - **What it does:** Advanced gyroscope-based video stabilization using camera IMU data; supports GoPro, DJI, Insta360, and many others
 - **Platforms:** Mac, Windows, Linux
 - **Gap:** Stabilization only — not an editor or publisher
-- **Relevance:** Cross-brand telemetry/IMU parsing is a solved problem here; their sensor data support list is a useful reference for AxEdUp's ingest layer.
+- **Relevance:** Cross-brand telemetry/IMU parsing is a solved problem here; their sensor data support list is a useful reference for aVs's ingest layer.
 
 ### Descript
 - **What it does:** Transcript-based video editing — edit the transcript to edit the video; AI scene detection, filler word removal
@@ -83,6 +83,6 @@ Each existing tool does some of these. None does all.
 | Antix | No | No | No | Yes | No | Yes |
 | AidVid | Yes* | No | No | Yes | No | No (cloud) |
 | Gyroflow | Yes | Yes | No | No | No | Yes |
-| AxEdUp (target) | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| aVs (target) | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 
 *Accepts any video file but not camera-aware

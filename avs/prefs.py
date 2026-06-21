@@ -26,8 +26,8 @@ DEFAULTS: dict = {
 
 
 def get_prefs() -> dict:
-    from axedup.models.db import get_session
-    from axedup.models.schema import AppSetting
+    from avs.models.db import get_session
+    from avs.models.schema import AppSetting
     prefs = dict(DEFAULTS)
     with get_session() as db:
         for row in db.query(AppSetting).all():
@@ -40,8 +40,8 @@ def get_prefs() -> dict:
 
 
 def save_prefs(values: dict) -> None:
-    from axedup.models.db import get_session
-    from axedup.models.schema import AppSetting
+    from avs.models.db import get_session
+    from avs.models.schema import AppSetting
     with get_session() as db:
         for key, val in values.items():
             if key not in DEFAULTS:

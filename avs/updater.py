@@ -18,7 +18,7 @@ def _do_check(repo: str, current: str) -> None:
         import urllib.request
 
         url = f"https://api.github.com/repos/{repo}/releases/latest"
-        req = urllib.request.Request(url, headers={"User-Agent": f"axedup/{current}"})
+        req = urllib.request.Request(url, headers={"User-Agent": f"avs/{current}"})
         with urllib.request.urlopen(req, timeout=5) as r:
             data = json.loads(r.read())
         tag = data.get("tag_name", "").lstrip("v")

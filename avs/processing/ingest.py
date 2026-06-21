@@ -13,9 +13,9 @@ from pathlib import Path
 
 from rich.console import Console
 
-from axedup import config
-from axedup.models.db import get_session
-from axedup.models.schema import Clip, Session, SessionStatus
+from avs import config
+from avs.models.db import get_session
+from avs.models.schema import Clip, Session, SessionStatus
 
 VIDEO_SUFFIXES = {".mp4", ".mov"}
 MIN_DURATION_S = 5.0

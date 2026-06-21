@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=aVs
+Comment=Adventure video sharing tool
+Exec=avs
+Icon=avs
+Type=Application
+Categories=AudioVideo;Video;
+Terminal=false
+StartupWMClass=avs

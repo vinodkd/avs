@@ -5,8 +5,8 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from axedup import config
-from axedup.models.schema import Base
+from avs import config
+from avs.models.schema import Base
 
 
 def _get_engine() -> Engine:

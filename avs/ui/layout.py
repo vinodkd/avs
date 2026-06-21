@@ -32,14 +32,14 @@ def sidebar(active: str, session_id: str | None = None, status: str | None = Non
 
     with ui.list().props('dense padding').style('width:100%; padding-top:0.25rem'):
 
-        # Brand row — icon always visible, "AxEdUp" hidden in mini mode
+        # Brand row — icon always visible, "aVs" hidden in mini mode
         with ui.item().style(
             'padding:0.5rem 0; border-bottom:1px solid #2a2a2a; margin-bottom:0.25rem; cursor:default'
         ):
             with ui.item_section().props('avatar'):
                 ui.icon('videocam').style('color:#5a9a5a; font-size:1.3rem')
             with ui.item_section():
-                ui.label('AxEdUp').style('color:#eee; font-size:0.95rem; font-weight:700')
+                ui.label('aVs').style('color:#eee; font-size:0.95rem; font-weight:700')
 
         for item_id, label, icon, url in items:
             is_active = item_id == active

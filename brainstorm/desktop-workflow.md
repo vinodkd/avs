@@ -1,4 +1,4 @@
-# AxEdUp: Desktop App — Workflow & UX Design
+# aVs: Desktop App — Workflow & UX Design
 
 ## Scope Decision
 
@@ -41,7 +41,7 @@ Take the marked clips, arrange them, add color grade, music, transitions, captio
 
 ---
 
-## How AxEdUp Reimagines Each Pass
+## How aVs Reimagines Each Pass
 
 The goal is not to eliminate the three passes — they reflect real cognitive work that needs to happen. The goal is to **compress and assist each pass** so the total session takes 15–20 minutes, not 2 hours.
 

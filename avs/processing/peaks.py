@@ -5,9 +5,9 @@ Finds local maxima in the combined signal, expands each peak into a clip region
 with pre/post padding, merges overlapping regions, and writes Mark rows to the DB.
 """
 
-from axedup.models.db import get_session
-from axedup.models.schema import Clip, Mark, MarkStatus, Profile, Session, TelemetryPoint
-from axedup.presets.sports import DEFAULT_PROFILES
+from avs.models.db import get_session
+from avs.models.schema import Clip, Mark, MarkStatus, Profile, Session, TelemetryPoint
+from avs.presets.sports import DEFAULT_PROFILES
 
 PRE_PADDING_S = 2.0
 POST_PADDING_S = 5.0
@@ -50,8 +50,8 @@ def detect_peaks(
             .all()
         )
 
-    from axedup.prefs import get_prefs
-    from axedup.processing.audio import clip_audio_spikes
+    from avs.prefs import get_prefs
+    from avs.processing.audio import clip_audio_spikes
     prefs = get_prefs()
     spike_k     = float(prefs.get("audio_spike_k", 3.0))
     audio_boost = float(prefs.get("audio_boost", 1.25))
@@ -220,7 +220,7 @@ def detect_boring_regions(
     Flag sustained low-motion spans as Mark rows with status=BORING.
 
     Reads the same motion series peak detection uses — no new video processing.
-    Thresholds come from global app settings (axedup/prefs.py):
+    Thresholds come from global app settings (avs/prefs.py):
       boring_threshold_pct — dull = smoothed motion < pct% of the sport's
                              motion_threshold
       boring_min_s         — dull stretches shorter than this are ignored
@@ -229,7 +229,7 @@ def detect_boring_regions(
     Spans overlapping any non-boring mark are cut around it: found highlights
     always win. Returns the number of boring marks created.
     """
-    from axedup.prefs import get_prefs
+    from avs.prefs import get_prefs
 
     _notify = on_event or _NOOP
     prefs = get_prefs()
@@ -389,7 +389,7 @@ def detect_dull_gaps(session_id: str, on_event=None) -> int:
     gaps: everything is a highlight, boring, or dull. Gaps shorter than the
     dull_min_s app setting are ignored. Returns the number of dull marks created.
     """
-    from axedup.prefs import get_prefs
+    from avs.prefs import get_prefs
 
     _notify = on_event or _NOOP
     min_s = float(get_prefs().get("dull_min_s", 3.0))
@@ -444,8 +444,8 @@ def detect_audio_spikes(session_id: str, on_event=None) -> int:
     score boost) and before boring/dull detection so those treat audio marks
     as claimed footage. Returns the number of marks created.
     """
-    from axedup.prefs import get_prefs
-    from axedup.processing.audio import clip_audio_spikes
+    from avs.prefs import get_prefs
+    from avs.processing.audio import clip_audio_spikes
 
     _notify = on_event or _NOOP
     spike_k = float(get_prefs().get("audio_spike_k", 3.0))

@@ -15,9 +15,9 @@ from pathlib import Path
 
 from rich.console import Console
 
-from axedup import config
-from axedup.models.db import get_session
-from axedup.models.schema import Clip, Mark, MarkStatus, Session
+from avs import config
+from avs.models.db import get_session
+from avs.models.schema import Clip, Mark, MarkStatus, Session
 
 
 def open_review(session_id: str, console: Console | None = None) -> None:
@@ -220,7 +220,7 @@ def _build_html(mark_groups: dict[str, list[Mark]], clips: dict[str, Clip]) -> s
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AxEdUp Review</title>
+<title>aVs Review</title>
 <style>
   *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ background: #111; color: #eee; font-family: system-ui, sans-serif;
@@ -275,7 +275,7 @@ def _build_html(mark_groups: dict[str, list[Mark]], clips: dict[str, Clip]) -> s
 </style>
 </head>
 <body>
-<h1>AxEdUp — Clip Review</h1>
+<h1>aVs — Clip Review</h1>
 <p class="subtitle">{total} candidate(s) total · all accepted by default</p>
 {sections_html}
 <div class="footer">
