@@ -906,62 +906,19 @@ def session_page(session_id: str) -> None:
                 with ui.element('div').classes('ax2-action-bar'):
 
                     if is_new:
-                        with ui.row().style('align-items:center;gap:0.4rem;flex:1'):
-                            _pi = ui.input(
-                                placeholder='/path/to/footage  or  /media/SDCARD/DCIM'
-                            ).style('flex:1;color:#eee;font-size:0.82rem')
-                            _new_path_ref[0] = _pi
-
-                            async def _browse_files() -> None:
-                                try:
-                                    from nicegui import app as ng_app
-                                    import webview
-                                    result = await ng_app.native.main_window.create_file_dialog(
-                                        webview.FileDialog.OPEN, allow_multiple=True,
-                                        file_types=('Video files (*.mp4;*.MP4;*.mov;*.MOV;*.avi)',),
-                                    )
-                                except Exception as exc:
-                                    ui.notify(f'File picker unavailable: {exc}', type='warning'); return
-                                if result:
-                                    paths = [Path(r) for r in result]
-                                    _new_files.clear(); _new_files.extend(paths)
-                                    _pi.set_value(str(paths[0].parent))
-                                    if _new_hint_ref[0]: _new_hint_ref[0].set_text(f'{len(paths)} file(s) selected')
-                                else:
-                                    try:
-                                        from nicegui import app as ng_app2
-                                        import webview as wv2
-                                        folder = await ng_app2.native.main_window.create_file_dialog(
-                                            wv2.FileDialog.FOLDER, allow_multiple=False)
-                                    except Exception as exc:
-                                        ui.notify(f'Folder picker unavailable: {exc}', type='warning'); return
-                                    if folder:
-                                        _pi.set_value(folder[0]); _new_files.clear()
-                                        if _new_hint_ref[0]: _new_hint_ref[0].set_text('All video files in folder')
-
-                            ui.button(icon='folder_open', on_click=_browse_files).props('flat round dense size=sm').tooltip('Browse')
-                            _hl = ui.label('').style('color:#666;font-size:0.72rem;min-width:80px')
-                            _new_hint_ref[0] = _hl
-                            _ss = ui.select(
-                                options={s: display_name(s) for s in sports},
-                                value=(_prefs['default_sport']
-                                       if _prefs['default_sport'] in sports
-                                       else (sports[0] if sports else 'unknown')),
-                                label='Sport',
-                            ).style('min-width:140px')
-                            _new_sport_ref[0] = _ss
-                            with ui.button(icon='info_outline').props(
-                                'flat round dense size=sm'
-                            ).style('color:#555').tooltip('What this sport profile does'):
-                                with ui.menu().style('background:#1c1c1c;border:1px solid #333'):
-                                    _pi_html = ui.html(
-                                        _profile_info_html(_ss.value), sanitize=False
-                                    )
-                            _ss.on_value_change(
-                                lambda e: _pi_html.set_content(_profile_info_html(e.value))
-                            )
-                        _ne = ui.label('').style('color:#e57373;font-size:0.78rem')
-                        _new_err_ref[0] = _ne
+                        from avs.ui.components.drop_zone import new_session_controls
+                        _dz = new_session_controls(
+                            sports=sports,
+                            default_sport=(_prefs['default_sport']
+                                           if _prefs['default_sport'] in sports
+                                           else (sports[0] if sports else 'unknown')),
+                            profile_info_html_fn=_profile_info_html,
+                        )
+                        _new_path_ref[0]  = _dz['path_ref'][0]
+                        _new_sport_ref[0] = _dz['sport_ref'][0]
+                        _new_files        = _dz['files']
+                        _new_hint_ref[0]  = _dz['hint_ref'][0]
+                        _new_err_ref[0]   = _dz['err_ref'][0]
                         next_action['fn'] = None  # will be set by _do_start wiring below
 
                     else:
@@ -1060,11 +1017,8 @@ def session_page(session_id: str) -> None:
                     with ui.element('div').classes('ax2-player-main'):
 
                         if is_new:
-                            with ui.element('div').classes('ax2-dz'):
-                                with ui.element('div').classes('ax2-dz-ring'):
-                                    ui.html('▷', sanitize=False, tag='span')
-                                ui.label('No footage loaded yet').classes('ax2-dz-label')
-                                ui.label('enter a path or use Browse above').classes('ax2-dz-sub')
+                            from avs.ui.components.drop_zone import drop_zone_placeholder
+                            drop_zone_placeholder()
 
                         elif init_src:
                             ui.html(
@@ -1139,20 +1093,13 @@ def session_page(session_id: str) -> None:
                 from avs.engine import pipeline as engine
                 from nicegui import run as ng_run
                 session_obj = await ng_run.io_bound(
-                    engine.ingest_folder, src_p, ss.value if ss else 'unknown', None, files_to_import
+                    engine.ingest_session, src_p, ss.value if ss else 'unknown', files_to_import
                 )
             except Exception as exc:
                 if nb: nb.set_enabled(True); nb.set_text('Import & build working copy →')
                 if er: er.set_text(str(exc))
                 return
             sid = session_obj.id
-            with db_session() as _db:
-                first_clip = _db.query(Clip).filter(Clip.session_id == sid).order_by(Clip.clip_order).first()
-            if first_clip:
-                still_dest = config.STILL_DIR / f'{sid}_still.jpg'
-                from avs.processing.analysis import extract_source_still
-                from nicegui import run as ng_run2
-                await ng_run2.io_bound(extract_source_still, Path(first_clip.filepath), still_dest)
             state.start_task(f'{sid}_proxy')
 
             def _on_proxy_progress(clip_id, stage, evt_status, message, completed, total):

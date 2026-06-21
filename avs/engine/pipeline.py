@@ -48,6 +48,33 @@ def ingest_folder(source_path, sport: str, console=None, files=None):
     return _ingest(source_path, sport, console, files)
 
 
+def ingest_session(source_path, sport: str, files=None):
+    """Sync: ingest folder + extract first-frame still. Returns session_obj.
+
+    Combines the two blocking operations so the UI needs only one io_bound call.
+    """
+    from avs.processing.ingest import ingest_folder as _ingest
+    from avs.processing.analysis import extract_source_still
+    from avs.models.db import get_session as _db
+    from avs.models.schema import Clip
+    from avs import config
+
+    session_obj = _ingest(source_path, sport, None, files)
+    sid = session_obj.id
+
+    with _db() as db:
+        first_clip = (db.query(Clip)
+                      .filter(Clip.session_id == sid)
+                      .order_by(Clip.clip_order)
+                      .first())
+        filepath = Path(first_clip.filepath) if first_clip else None
+
+    if filepath:
+        extract_source_still(filepath, config.STILL_DIR / f'{sid}_still.jpg')
+
+    return session_obj
+
+
 def run_proxy(session_id: str, on_progress: Callable | None, on_done: Callable) -> CancelToken:
     token = CancelToken()
     def _fn():
