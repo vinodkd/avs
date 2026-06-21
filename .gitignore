@@ -39,6 +39,7 @@ env/
 .coverage
 htmlcov/
 .pytest_cache/
+tests/fixtures/source.mp4
 
 # OS
 Thumbs.db
