@@ -1,17 +1,24 @@
 """
 Candidate mark generation from motion intensity (and telemetry when available).
 
-Finds local maxima in the combined signal, expands each peak into a clip region
-with pre/post padding, merges overlapping regions, and writes Mark rows to the DB.
+Scene-aware clip model: for each PySceneDetect scene, finds the peak motion moment,
+computes a score-proportional context window clamped to the scene boundary, and writes
+one Mark per scene. Clips never overlap by construction (scene boundaries are hard walls).
+
+Falls back to single-scene-per-clip if no scene data is stored (old sessions).
 """
 
 from avs.models.db import get_session
-from avs.models.schema import Clip, Mark, MarkStatus, Profile, Session, TelemetryPoint
+from avs.models.schema import Clip, Mark, MarkStatus, Profile, Scene, Session, TelemetryPoint
 from avs.presets.sports import DEFAULT_PROFILES
 
-PRE_PADDING_S = 2.0
-POST_PADDING_S = 5.0
-MIN_PEAK_DISTANCE_S = 4.0
+# Fallback pre/post when no profile ranges are set
+_DEFAULT_PRE_MIN  = 1.0
+_DEFAULT_PRE_MAX  = 4.0
+_DEFAULT_POST_MIN = 2.0
+_DEFAULT_POST_MAX = 6.0
+
+MIN_PEAK_DISTANCE_S = 4.0  # kept for audio / boring / dull (not used by scene model)
 
 _NOOP = lambda *_: None
 
@@ -20,14 +27,12 @@ def detect_peaks(
     session_id: str,
     on_event=None,
     motion_method: str = "proxy",
+    cancel_token=None,
 ) -> int:
-    """
-    Generate candidate Mark rows for every clip in *session_id*.
-    Returns total number of candidates created.
+    """Generate candidate Mark rows for every clip in *session_id*.
 
-    motion_method: 'proxy' uses motion_intensity; 'jpg' uses motion_intensity_quick.
-    Marks are tagged 'motion_peak' or 'motion_peak_jpg' accordingly.
-    on_event: same OnEvent callback as analyze_session — fires per-clip done events.
+    Uses the scene-aware model: one mark per PySceneDetect scene, window
+    clamped to scene boundaries. Returns total marks created.
     """
     _notify = on_event or _NOOP
 
@@ -42,6 +47,10 @@ def detect_peaks(
             if profile and profile.motion_threshold is not None
             else DEFAULT_PROFILES.get(session.sport, {}).get("motion_threshold", 0.5)
         )
+        pre_min  = (profile.clip_pre_min_s  if profile and profile.clip_pre_min_s  is not None else _DEFAULT_PRE_MIN)
+        pre_max  = (profile.clip_pre_max_s  if profile and profile.clip_pre_max_s  is not None else _DEFAULT_PRE_MAX)
+        post_min = (profile.clip_post_min_s if profile and profile.clip_post_min_s is not None else _DEFAULT_POST_MIN)
+        post_max = (profile.clip_post_max_s if profile and profile.clip_post_max_s is not None else _DEFAULT_POST_MAX)
 
         clips = (
             db.query(Clip)
@@ -58,9 +67,26 @@ def detect_peaks(
 
     total = 0
     for clip in clips:
+        if cancel_token and cancel_token.is_cancelled():
+            from avs.engine.cancel import CancelledError
+            raise CancelledError()
+
+        with get_session() as db:
+            scenes = (
+                db.query(Scene)
+                .filter(Scene.clip_id == clip.id)
+                .order_by(Scene.scene_index)
+                .all()
+            )
+
         spike_ts = clip_audio_spikes(clip.id, spike_k)
-        n = _detect_clip_peaks(clip, motion_threshold, motion_method,
-                               spike_ts=spike_ts, audio_boost=audio_boost)
+        n = _detect_clip_peaks(
+            clip, motion_threshold, motion_method,
+            spike_ts=spike_ts, audio_boost=audio_boost,
+            scenes=scenes,
+            pre_min=pre_min, pre_max=pre_max,
+            post_min=post_min, post_max=post_max,
+        )
         _notify(clip.id, 'peaks', 'done', f"{clip.filename}: {n} candidate(s)", None, None)
         total += n
 
@@ -68,13 +94,28 @@ def detect_peaks(
 
 
 # ---------------------------------------------------------------------------
-# Per-clip peak detection
+# Per-clip peak detection (scene-aware)
 # ---------------------------------------------------------------------------
 
-def _detect_clip_peaks(clip: Clip, motion_threshold: float, motion_method: str = "proxy",
-                       spike_ts: list[float] | None = None, audio_boost: float = 1.0) -> int:
-    """Find peaks in this clip's motion signal and write Mark candidates.
-    Regions containing an audio spike get their score multiplied by audio_boost."""
+def _detect_clip_peaks(
+    clip: Clip,
+    motion_threshold: float,
+    motion_method: str = "proxy",
+    spike_ts: list[float] | None = None,
+    audio_boost: float = 1.0,
+    scenes: list[Scene] | None = None,
+    pre_min: float = _DEFAULT_PRE_MIN,
+    pre_max: float = _DEFAULT_PRE_MAX,
+    post_min: float = _DEFAULT_POST_MIN,
+    post_max: float = _DEFAULT_POST_MAX,
+) -> int:
+    """Find the peak motion moment within each scene; write one Mark per scene.
+
+    Scene boundaries are hard walls — windows are clamped to [scene.start_s, scene.end_s].
+    Clips never overlap by construction. Score is normalised within the clip.
+
+    Falls back to treating the full clip as one scene if no scene data exists.
+    """
     source = "motion_peak_jpg" if motion_method == "jpg" else "motion_peak"
 
     with get_session() as db:
@@ -83,125 +124,86 @@ def _detect_clip_peaks(clip: Clip, motion_threshold: float, motion_method: str =
             Mark.source == source,
         ).delete()
 
-        if motion_method == "jpg":
-            rows = (
-                db.query(TelemetryPoint)
-                .filter(TelemetryPoint.clip_id == clip.id)
-                .filter(TelemetryPoint.motion_intensity_quick.isnot(None))
-                .order_by(TelemetryPoint.timestamp_s)
-                .all()
-            )
-            intensities = [r.motion_intensity_quick for r in rows]
-        else:
-            rows = (
-                db.query(TelemetryPoint)
-                .filter(TelemetryPoint.clip_id == clip.id)
-                .filter(TelemetryPoint.motion_intensity.isnot(None))
-                .order_by(TelemetryPoint.timestamp_s)
-                .all()
-            )
-            intensities = [r.motion_intensity for r in rows]
+        col_filter = (
+            TelemetryPoint.motion_intensity_quick.isnot(None)
+            if motion_method == "jpg"
+            else TelemetryPoint.motion_intensity.isnot(None)
+        )
+        rows = (
+            db.query(TelemetryPoint)
+            .filter(TelemetryPoint.clip_id == clip.id)
+            .filter(col_filter)
+            .order_by(TelemetryPoint.timestamp_s)
+            .all()
+        )
 
     if not rows:
         return 0
 
-    timestamps = [r.timestamp_s for r in rows]
-    peak_indices = _find_peaks(intensities, timestamps, motion_threshold)
-    if not peak_indices:
-        return 0
-
-    regions = _peaks_to_regions(peak_indices, timestamps, intensities, clip.duration_s)
-    regions = _merge_overlapping(regions)
-
-    if spike_ts and audio_boost != 1.0:
-        regions = [
-            (a, b, min(1.0, s * audio_boost) if any(a <= t <= b for t in spike_ts) else s)
-            for a, b, s in regions
-        ]
-
-    marks = [
-        Mark(
-            clip_id=clip.id,
-            in_s=in_s,
-            out_s=out_s,
-            score=round(score, 4),
-            source=source,
-            status=MarkStatus.CANDIDATE,
-        )
-        for in_s, out_s, score in regions
+    timestamps  = [r.timestamp_s for r in rows]
+    intensities = [
+        (r.motion_intensity_quick if motion_method == "jpg" else r.motion_intensity)
+        for r in rows
     ]
 
-    with get_session() as db:
-        db.add_all(marks)
+    # Normalise within this clip so score is comparable across clips
+    global_max = max(intensities) if intensities else 1.0
+    if global_max == 0:
+        return 0
+
+    # Use stored scenes; if none (old session or no cuts detected), one scene = full clip
+    effective_scenes: list[tuple[float, float]] = (
+        [(s.start_s, s.end_s) for s in scenes]
+        if scenes
+        else [(0.0, clip.duration_s)]
+    )
+
+    marks = []
+    for scene_start, scene_end in effective_scenes:
+        # Find the peak within this scene's time window
+        scene_pairs = [
+            (t, v) for t, v in zip(timestamps, intensities)
+            if scene_start <= t <= scene_end
+        ]
+        if not scene_pairs:
+            continue
+
+        peak_t, peak_v = max(scene_pairs, key=lambda x: x[1])
+
+        if peak_v < motion_threshold:
+            continue  # below threshold; this scene becomes a dull gap
+
+        norm_score = peak_v / global_max
+
+        # Score-proportional context window, clamped to scene boundary
+        pre  = pre_min  + norm_score * (pre_max  - pre_min)
+        post = post_min + norm_score * (post_max - post_min)
+        in_s  = max(scene_start, peak_t - pre)
+        out_s = min(scene_end,   peak_t + post)
+
+        # Audio spike inside the window boosts the score
+        final_score = peak_v
+        if spike_ts and audio_boost != 1.0:
+            if any(in_s <= t <= out_s for t in spike_ts):
+                final_score = min(1.0, peak_v * audio_boost)
+
+        marks.append(Mark(
+            clip_id=clip.id,
+            in_s=round(in_s, 2),
+            out_s=round(out_s, 2),
+            score=round(final_score, 4),
+            normalised_score=round(norm_score, 4),
+            scene_start=scene_start,
+            scene_end=scene_end,
+            source=source,
+            status=MarkStatus.CANDIDATE,
+        ))
+
+    if marks:
+        with get_session() as db:
+            db.add_all(marks)
 
     return len(marks)
-
-
-# ---------------------------------------------------------------------------
-# Signal processing
-# ---------------------------------------------------------------------------
-
-def _find_peaks(
-    values: list[float],
-    timestamps: list[float],
-    threshold: float,
-    min_distance_s: float = MIN_PEAK_DISTANCE_S,
-) -> list[int]:
-    if len(values) < 3:
-        return []
-
-    candidates = []
-    for i in range(1, len(values) - 1):
-        if values[i] >= threshold and values[i] >= values[i - 1] and values[i] >= values[i + 1]:
-            candidates.append(i)
-
-    if not candidates:
-        return []
-
-    kept = [candidates[0]]
-    for idx in candidates[1:]:
-        if timestamps[idx] - timestamps[kept[-1]] >= min_distance_s:
-            kept.append(idx)
-        elif values[idx] > values[kept[-1]]:
-            kept[-1] = idx
-
-    return kept
-
-
-def _peaks_to_regions(
-    peak_indices: list[int],
-    timestamps: list[float],
-    intensities: list[float],
-    clip_duration_s: float,
-) -> list[tuple[float, float, float]]:
-    regions = []
-    for idx in peak_indices:
-        t = timestamps[idx]
-        in_s  = max(0.0, t - PRE_PADDING_S)
-        out_s = min(clip_duration_s, t + POST_PADDING_S)
-        score = intensities[idx]
-        regions.append((in_s, out_s, score))
-    return regions
-
-
-def _merge_overlapping(
-    regions: list[tuple[float, float, float]],
-) -> list[tuple[float, float, float]]:
-    if not regions:
-        return []
-
-    sorted_regions = sorted(regions, key=lambda r: r[0])
-    merged = [list(sorted_regions[0])]
-
-    for in_s, out_s, score in sorted_regions[1:]:
-        prev = merged[-1]
-        if in_s <= prev[1]:
-            prev[1] = max(prev[1], out_s)
-            prev[2] = max(prev[2], score)
-        else:
-            merged.append([in_s, out_s, score])
-
-    return [(r[0], r[1], r[2]) for r in merged]
 
 
 # ---------------------------------------------------------------------------
@@ -215,19 +217,16 @@ def detect_boring_regions(
     session_id: str,
     on_event=None,
     motion_method: str = "proxy",
+    cancel_token=None,
 ) -> int:
-    """
-    Flag sustained low-motion spans as Mark rows with status=BORING.
+    """Flag sustained low-motion spans as Mark rows with status=BORING.
 
     Reads the same motion series peak detection uses — no new video processing.
     Thresholds come from global app settings (avs/prefs.py):
-      boring_threshold_pct — dull = smoothed motion < pct% of the sport's
-                             motion_threshold
+      boring_threshold_pct — dull = smoothed motion < pct% of the sport's motion_threshold
       boring_min_s         — dull stretches shorter than this are ignored
-      boring_gap_s         — blips above the line shorter than this don't
-                             break a region
-    Spans overlapping any non-boring mark are cut around it: found highlights
-    always win. Returns the number of boring marks created.
+      boring_gap_s         — blips above the line shorter than this don't break a region
+    Spans overlapping any non-boring mark are cut around it. Returns boring marks created.
     """
     from avs.prefs import get_prefs
 
@@ -257,6 +256,9 @@ def detect_boring_regions(
     low_bar = motion_threshold * pct
     total = 0
     for clip in clips:
+        if cancel_token and cancel_token.is_cancelled():
+            from avs.engine.cancel import CancelledError
+            raise CancelledError()
         n = _detect_clip_boring(clip, low_bar, min_s, gap_s, motion_method)
         _notify(clip.id, 'boring', 'done', f"{clip.filename}: {n} boring span(s)", None, None)
         total += n
@@ -273,7 +275,6 @@ def _detect_clip_boring(
     col = (TelemetryPoint.motion_intensity_quick if motion_method == "jpg"
            else TelemetryPoint.motion_intensity)
     with get_session() as db:
-        # Regenerate on every run, like peak marks
         db.query(Mark).filter(
             Mark.clip_id == clip.id,
             Mark.source == BORING_SOURCE,
@@ -337,7 +338,7 @@ def _low_motion_runs(
     low_bar: float,
     gap_s: float,
 ) -> list[tuple[float, float]]:
-    """Contiguous low-motion spans (for boring detection), bridging blips ≤ gap_s."""
+    """Contiguous low-motion spans, bridging blips <= gap_s."""
     runs: list[tuple[float, float]] = []
     start = None
     last_dull = None
@@ -375,19 +376,17 @@ def _subtract_intervals(
 
 
 # ---------------------------------------------------------------------------
-# Dull-gap marking — unclaimed footage between marks becomes its own category
+# Dull-gap marking
 # ---------------------------------------------------------------------------
 
 DULL_SOURCE = "dull_gap"
 
 
-def detect_dull_gaps(session_id: str, on_event=None) -> int:
-    """
-    Mark every span of footage not covered by any other mark as status=DULL.
+def detect_dull_gaps(session_id: str, on_event=None, cancel_token=None) -> int:
+    """Mark every span not covered by any other mark as status=DULL.
 
-    Runs after peak + boring detection so the timeline has no anonymous black
-    gaps: everything is a highlight, boring, or dull. Gaps shorter than the
-    dull_min_s app setting are ignored. Returns the number of dull marks created.
+    Runs after peak + boring detection so the timeline has no anonymous gaps.
+    Gaps shorter than the dull_min_s app setting are ignored.
     """
     from avs.prefs import get_prefs
 
@@ -404,6 +403,9 @@ def detect_dull_gaps(session_id: str, on_event=None) -> int:
 
     total = 0
     for clip in clips:
+        if cancel_token and cancel_token.is_cancelled():
+            from avs.engine.cancel import CancelledError
+            raise CancelledError()
         if not clip.duration_s:
             continue
         with get_session() as db:
@@ -430,19 +432,18 @@ def detect_dull_gaps(session_id: str, on_event=None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Audio-only spike marks — loud moments the camera didn't move for
+# Audio-only spike marks
 # ---------------------------------------------------------------------------
 
 AUDIO_SOURCE = "audio_spike"
-_AUDIO_MARK_SCORE = 0.6  # middle tier: louder than ordinary, unproven by motion
+_AUDIO_MARK_SCORE = 0.6
 
 
-def detect_audio_spikes(session_id: str, on_event=None) -> int:
-    """
-    Create candidate marks around audio spikes that fall outside every existing
-    mark window. Runs after detect_peaks (motion marks claim their spikes via
-    score boost) and before boring/dull detection so those treat audio marks
-    as claimed footage. Returns the number of marks created.
+def detect_audio_spikes(session_id: str, on_event=None, cancel_token=None) -> int:
+    """Create candidate marks around audio spikes that fall outside every existing mark window.
+
+    Runs after detect_peaks so motion marks claim their spikes via score boost.
+    Returns the number of marks created.
     """
     from avs.prefs import get_prefs
     from avs.processing.audio import clip_audio_spikes
@@ -460,6 +461,9 @@ def detect_audio_spikes(session_id: str, on_event=None) -> int:
 
     total = 0
     for clip in clips:
+        if cancel_token and cancel_token.is_cancelled():
+            from avs.engine.cancel import CancelledError
+            raise CancelledError()
         with get_session() as db:
             db.query(Mark).filter(
                 Mark.clip_id == clip.id,
@@ -472,8 +476,8 @@ def detect_audio_spikes(session_id: str, on_event=None) -> int:
         free = [t for t in clip_audio_spikes(clip.id, spike_k)
                 if not any(a <= t <= b for a, b in occupied)]
         regions = _merge_overlapping([
-            (max(0.0, t - PRE_PADDING_S),
-             min(clip.duration_s or t + POST_PADDING_S, t + POST_PADDING_S),
+            (max(0.0, t - _DEFAULT_PRE_MIN),
+             min(clip.duration_s or t + _DEFAULT_POST_MAX, t + _DEFAULT_POST_MAX),
              _AUDIO_MARK_SCORE)
             for t in free
         ])
@@ -488,3 +492,21 @@ def detect_audio_spikes(session_id: str, on_event=None) -> int:
                 f"{clip.filename}: {len(regions)} audio mark(s)", None, None)
         total += len(regions)
     return total
+
+
+def _merge_overlapping(
+    regions: list[tuple[float, float, float]],
+) -> list[tuple[float, float, float]]:
+    """Merge overlapping (in_s, out_s, score) regions, keeping max score. Used by audio marks."""
+    if not regions:
+        return []
+    sorted_regions = sorted(regions, key=lambda r: r[0])
+    merged = [list(sorted_regions[0])]
+    for in_s, out_s, score in sorted_regions[1:]:
+        prev = merged[-1]
+        if in_s <= prev[1]:
+            prev[1] = max(prev[1], out_s)
+            prev[2] = max(prev[2], score)
+        else:
+            merged.append([in_s, out_s, score])
+    return [(r[0], r[1], r[2]) for r in merged]

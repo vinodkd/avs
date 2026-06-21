@@ -121,10 +121,13 @@ def run_peaks(
             detect_boring_regions, detect_dull_gaps,
         )
         on_prog = on_progress or _NOOP_P
-        detect_peaks(session_id, on_event=on_prog, motion_method=method)
-        detect_audio_spikes(session_id, on_event=on_prog)
-        detect_boring_regions(session_id, on_event=on_prog, motion_method=method)
-        detect_dull_gaps(session_id, on_event=on_prog)
+        detect_peaks(session_id, on_event=on_prog, motion_method=method, cancel_token=token)
+        if not token.is_cancelled():
+            detect_audio_spikes(session_id, on_event=on_prog, cancel_token=token)
+        if not token.is_cancelled():
+            detect_boring_regions(session_id, on_event=on_prog, motion_method=method, cancel_token=token)
+        if not token.is_cancelled():
+            detect_dull_gaps(session_id, on_event=on_prog, cancel_token=token)
     _run_in_thread(session_id, token, _fn, on_done)
     return token
 

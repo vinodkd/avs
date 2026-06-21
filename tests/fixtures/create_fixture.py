@@ -3,7 +3,11 @@
 Generate tests/fixtures/source.mp4 — a synthetic ~120s test video designed to
 exercise every stage of the aVs pipeline with multiple examples of each signal type.
 
-Timeline and expected detections are printed at the end and match README.md.
+Motion is produced by a scrolling sinusoidal texture (all pixels move → realistic
+optical flow values). Scene cuts are created by alternating between solid-colour
+LOW segments and textured HIGH/MEDIUM segments.
+
+Timeline and expected detections are printed at the end.
 
 Usage:
     python3 tests/fixtures/create_fixture.py
@@ -18,21 +22,22 @@ FFMPEG = None  # resolved at runtime
 OUT = Path(__file__).parent / "source.mp4"
 W, H, FPS, SR = 1280, 720, 30, 44100
 
-
 # ── Segment definitions ───────────────────────────────────────────────────────
 #
 # Each segment is a dict:
 #   duration   : float  seconds
 #   motion     : 'high' | 'medium' | 'low'   (optical flow intensity)
 #   audio      : 'spike' | 'quiet'            (RMS level)
-#   bg         : hex colour string            (hard scene cut when it changes)
-#   label      : str                          (for README)
+#   bg         : hex colour string            (used for solid LOW segments;
+#                  scene cuts occur at LOW↔HIGH transitions)
+#   label      : str
 #
-# Designed so the pipeline should find:
-#   Motion peaks  : segments with motion='high' (~4 peaks)
-#   Boring regions: segments with motion='low', duration >= 10s (~4 regions)
-#   Audio spikes  : segments with audio='spike' (~4 spikes)
-#   Scene cuts    : background colour changes (~4 hard transitions)
+# Expected optical flow intensities (at 480p proxy, OPTICAL_FLOW_SAMPLE_INTERVAL=0.5s):
+#   high   ~ 0.69   (above all sport motion_threshold values: 0.40–0.70)
+#   medium ~ 0.28   (below all thresholds — boring-region candidate)
+#   low    ~ 0.00   (solid colour, no motion — boring/dull candidate)
+#
+# Scene cuts are all LOW↔HIGH transitions (solid→texture or texture→solid).
 
 SEGMENTS = [
     # label                     dur   motion    audio    bg
@@ -58,33 +63,29 @@ SEGMENTS = [
 
 # ── Video filter builders ─────────────────────────────────────────────────────
 
-def _motion_filter(bg: str, motion: str, t_offset: float) -> str:
-    """Build a lavfi filter string that produces the requested motion level."""
+def _motion_filter(bg: str, motion: str) -> str:
+    """Return a lavfi filtergraph string for the requested motion level.
+
+    LOW  → solid colour (no motion), ~0.00 intensity.
+    HIGH → scrolling sinusoidal texture, ~0.69 intensity at 480p proxy.
+    MED  → same texture, slower scroll, ~0.28 intensity.
+
+    The scroll is vertical (v=) so all pixels move; optical flow sees realistic
+    mean magnitudes across the whole frame.  Scroll speed is chosen to keep the
+    per-sample displacement (0.5 s × 30 fps = 15 frames) well below the pattern
+    half-period (~21 px at proxy), avoiding aliasing.
+    """
     if motion == "low":
-        # Near-static: one very slowly drifting box
-        return (
-            f"color=c={bg}:size={W}x{H}:rate={FPS},"
-            f"drawbox=x='560+10*sin(t*0.3)':y='280+8*sin(t*0.2)'"
-            f":w=160:h=160:c=0x222233:t=fill"
-        )
-    if motion == "medium":
-        # Two boxes moving at moderate speed
-        return (
-            f"color=c={bg}:size={W}x{H}:rate={FPS},"
-            f"drawbox=x='mod(t*120+200,{W-160})':y='mod(t*90+100,{H-160})'"
-            f":w=160:h=160:c=0x6688aa:t=fill,"
-            f"drawbox=x='mod(-t*100+800,{W-120})':y='mod(t*110+300,{H-120})'"
-            f":w=120:h=120:c=0xaa8866:t=fill"
-        )
-    # high: three boxes moving fast in different directions
+        return f"color=c={bg}:size={W}x{H}:rate={FPS}"
+
+    speed = "0.002" if motion == "high" else "0.0008"
+    # Sinusoidal texture on a neutral base — period ~63 px at source (~42 px at proxy).
+    # Displacement per sample at proxy: 14 px (high) or 6 px (medium) — below half-period.
     return (
-        f"color=c={bg}:size={W}x{H}:rate={FPS},"
-        f"drawbox=x='mod(t*480+50,{W-180})':y='mod(t*340+80,{H-180})'"
-        f":w=180:h=180:c=0xff5555:t=fill,"
-        f"drawbox=x='mod(-t*420+{W-200},{ W-140})':y='mod(t*390+200,{H-140})'"
-        f":w=140:h=140:c=0x55ff55:t=fill,"
-        f"drawbox=x='mod(t*460+400,{W-160})':y='mod(-t*370+{H-200},{H-160})'"
-        f":w=160:h=160:c=0x5555ff:t=fill"
+        f"color=c=0x111111:size={W}x{H}:rate={FPS},"
+        f"geq=r='128+100*sin(X*0.1)*sin(Y*0.1)'"
+        f":g='128+100*cos(X*0.1+Y*0.1)':b='64',"
+        f"scroll=v={speed}"
     )
 
 
@@ -98,7 +99,7 @@ def _audio_filter(audio: str) -> str:
 
 def build_segment(label: str, duration: float, motion: str, audio: str,
                   bg: str, dest: Path) -> None:
-    vf = _motion_filter(bg, motion, 0.0)
+    vf = _motion_filter(bg, motion)
     af = _audio_filter(audio)
     cmd = [
         FFMPEG, "-y",
@@ -144,6 +145,16 @@ def write_readme(segments: list[tuple]) -> None:
         "# Test fixture: source.mp4",
         "",
         "Synthetic ~120s video for pipeline testing. Generated by `create_fixture.py`.",
+        "",
+        "## Motion encoding",
+        "",
+        "| Level  | Filter                        | Approx intensity at 480p proxy |",
+        "|--------|-------------------------------|--------------------------------|",
+        "| high   | sinusoidal texture, v=0.002   | ~0.69                          |",
+        "| medium | sinusoidal texture, v=0.0008  | ~0.28                          |",
+        "| low    | solid colour (no motion)      | ~0.00                          |",
+        "",
+        "Scene cuts occur at all LOW↔HIGH/MEDIUM transitions.",
         "",
         "## Timeline",
         "",
@@ -195,15 +206,15 @@ def write_readme(segments: list[tuple]) -> None:
         t += dur
 
     lines.append("")
-    lines.append("**Scene cuts** (background colour transitions):")
+    lines.append("**Scene cuts** (LOW↔HIGH transitions):")
     t = 0.0
-    prev_bg = None
+    prev_motion = None
     cut_n = 0
     for label, dur, motion, audio, bg in segments:
-        if bg != prev_bg and prev_bg is not None:
+        if prev_motion is not None and motion != prev_motion:
             cut_n += 1
             lines.append(f"  - Cut {cut_n}: ~{t:.0f}s  (into: {label})")
-        prev_bg = bg
+        prev_motion = motion
         t += dur
 
     Path(__file__).parent.joinpath("README.md").write_text("\n".join(lines) + "\n")

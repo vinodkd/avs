@@ -77,6 +77,7 @@ class Clip(Base):
     session: Mapped["Session"]       = relationship(back_populates="clips")
     telemetry: Mapped[list["TelemetryPoint"]] = relationship(back_populates="clip", cascade="all, delete-orphan")
     marks: Mapped[list["Mark"]]      = relationship(back_populates="clip", cascade="all, delete-orphan")
+    scenes: Mapped[list["Scene"]]    = relationship(back_populates="clip", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Clip {self.filename} {self.duration_s:.1f}s>"
@@ -100,6 +101,18 @@ class TelemetryPoint(Base):
     clip: Mapped["Clip"] = relationship(back_populates="telemetry")
 
 
+class Scene(Base):
+    __tablename__ = "scenes"
+
+    id: Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
+    clip_id: Mapped[str]     = mapped_column(String, ForeignKey("clips.id"), nullable=False)
+    scene_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_s: Mapped[float]   = mapped_column(Float, nullable=False)
+    end_s: Mapped[float]     = mapped_column(Float, nullable=False)
+
+    clip: Mapped["Clip"] = relationship(back_populates="scenes")
+
+
 class Mark(Base):
     __tablename__ = "marks"
 
@@ -107,7 +120,10 @@ class Mark(Base):
     clip_id: Mapped[str] = mapped_column(String, ForeignKey("clips.id"), nullable=False)
     in_s: Mapped[float]  = mapped_column(Float, nullable=False)
     out_s: Mapped[float] = mapped_column(Float, nullable=False)
-    score: Mapped[float | None]  = mapped_column(Float, nullable=True)
+    score: Mapped[float | None]           = mapped_column(Float, nullable=True)
+    normalised_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scene_start: Mapped[float | None]     = mapped_column(Float, nullable=True)
+    scene_end: Mapped[float | None]       = mapped_column(Float, nullable=True)
     # telemetry_peak | motion_peak | audio_peak | user | llm
     source: Mapped[str]  = mapped_column(String, nullable=False)
     status: Mapped[str]  = mapped_column(String, nullable=False, default=MarkStatus.CANDIDATE)
@@ -141,6 +157,11 @@ class Profile(Base):
     scene_detector: Mapped[str] = mapped_column(String, nullable=False, default="content")
     scene_threshold: Mapped[float | None]       = mapped_column(Float, nullable=True)
     scene_min_scene_len: Mapped[int | None]     = mapped_column(Integer, nullable=True)
+    # clip context window (scene-aware model): lerp(min, max, normalised_score)
+    clip_pre_min_s: Mapped[float | None]  = mapped_column(Float, nullable=True)
+    clip_pre_max_s: Mapped[float | None]  = mapped_column(Float, nullable=True)
+    clip_post_min_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    clip_post_max_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     def __repr__(self) -> str:

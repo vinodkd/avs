@@ -697,6 +697,14 @@ def session_page(session_id: str) -> None:
     _new_hint_ref  = [None]
     _new_files:    list = []
 
+    async def _handle_next_click() -> None:
+        fn = next_action['fn']
+        if not fn: return
+        if inspect.iscoroutinefunction(fn):
+            await fn()
+        else:
+            fn()
+
     # combine refs
     _combine_grade_val  = [_prefs['default_grade']
                            if _prefs['default_grade'] in _GRADES else 'natural']
@@ -953,25 +961,17 @@ def session_page(session_id: str) -> None:
                         _eodir.on_value_change(lambda e: _export_outdir_val.__setitem__(0, e.value))
                         _export_ctl_refs.extend([_ea16, _ea9, _eodir])
 
-                    # Cancel button — visible only while a stage is running
-                    if not is_new:
-                        def _do_cancel():
-                            from avs.engine import pipeline as engine
-                            engine.cancel_current(session_id)
-                        _cbtn = ui.button('Cancel', on_click=_do_cancel).props(
-                            'color=negative flat size=sm'
-                        )
-                        _cbtn.set_visibility(False)
-                        cancel_btn_ref[0] = _cbtn
-
-                    # Next-action button (rightmost — top right of the pane)
-                    _nbtn = ui.button(
-                        'Import & build working copy →' if is_new else '…',
-                        on_click=lambda: _handle_next_click(),
-                    ).props('color=positive size=sm')
-                    if not is_new:
-                        _nbtn.set_enabled(False)
-                    next_btn_ref[0] = _nbtn
+                    if is_new:
+                        _nbtn = ui.button(
+                            'Import & build working copy →',
+                            on_click=_handle_next_click,
+                        ).props('color=positive size=sm')
+                        next_btn_ref[0] = _nbtn
+                    else:
+                        from avs.ui.components.stage_bar import next_cancel_buttons
+                        _bar = next_cancel_buttons(session_id, on_next=_handle_next_click)
+                        cancel_btn_ref[0] = _bar['cancel_btn']
+                        next_btn_ref[0]   = _bar['next_btn']
 
                 # ── Grade swatch strip — shown at the Combine stage, built lazily ─
                 if not is_new:
@@ -1121,14 +1121,6 @@ def session_page(session_id: str) -> None:
         next_action['fn'] = _do_start
 
     # ── Helpers ────────────────────────────────────────────────────────────────
-
-    async def _handle_next_click() -> None:
-        fn = next_action['fn']
-        if not fn: return
-        if inspect.iscoroutinefunction(fn):
-            await fn()
-        else:
-            fn()
 
     def _set_next_btn(label: str, enabled: bool, fn) -> None:
         b = next_btn_ref[0]

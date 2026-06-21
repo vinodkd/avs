@@ -188,6 +188,7 @@ def run_motion_scan(
         proxy_path = config.PROXY_DIR / f"{clip.id}.mp4"
         _notify(clip.id, "scenes", "running", f"{clip.filename}: detecting scene cuts", None, None)
         scenes = _detect_scenes(proxy_path, profile)
+        _store_scenes(clip.id, scenes, clip.duration_s)
         _notify(clip.id, "scenes", "done", f"{clip.filename}: {len(scenes)} scene(s)", None, None)
         if cancel_token and cancel_token.is_cancelled():
             raise CancelledError()
@@ -617,6 +618,22 @@ def _detect_scenes(proxy_path: Path, profile: Profile | None = None) -> list[tup
         return [(s.get_seconds(), e.get_seconds()) for s, e in scenes]
     except Exception:
         return []
+
+
+def _store_scenes(clip_id: str, scenes: list[tuple[float, float]], clip_duration_s: float) -> None:
+    """Persist scene boundaries for a clip. Replaces any existing rows.
+
+    If PySceneDetect found no cuts, stores one scene covering the full clip so
+    that the scene-aware clip model always has at least one window to work with.
+    """
+    from avs.models.schema import Scene
+    effective = scenes if scenes else [(0.0, clip_duration_s)]
+    with get_session() as db:
+        db.query(Scene).filter(Scene.clip_id == clip_id).delete()
+        db.add_all([
+            Scene(clip_id=clip_id, scene_index=i, start_s=start, end_s=end)
+            for i, (start, end) in enumerate(effective)
+        ])
 
 
 def _extract_frame_at(proxy: Path, t: float, dest: Path) -> None:
