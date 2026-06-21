@@ -1,4 +1,4 @@
-from axedup.cli import app
+from avs.cli import app
 
 if __name__ == "__main__":
     app()

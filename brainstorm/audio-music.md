@@ -2,7 +2,7 @@
 
 ## Design decision
 
-AxEdUp does not bundle music. Redistribution of audio tracks requires per-track
+aVs does not bundle music. Redistribution of audio tracks requires per-track
 licensing that is incompatible with an open-source or freely distributed app.
 Instead:
 

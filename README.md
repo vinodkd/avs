@@ -1,8 +1,8 @@
-# AxEdUp
+# aVs
 
 Turn a day's action camera footage into a shareable video without learning video editing software.
 
-AxEdUp reads files from an SD card or local folder, analyzes them with computer vision and telemetry data, walks you through a review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload — all from a desktop GUI.
+aVs reads files from an SD card or local folder, analyzes them with computer vision and telemetry data, walks you through a review workflow, assembles a finished video using sport-specific presets, and exports it ready for upload — all from a desktop GUI.
 
 **Status:** Early beta. Core pipeline (ingest → analyze → pick → assemble → export) works end-to-end. Installers available for Linux, Windows, and macOS.
 
@@ -24,11 +24,11 @@ No timeline scrubbing, no effects panels, no keyframing. The computer edits; you
 
 ### Linux
 
-Download `AxEdUp-<version>-x86_64.AppImage` from [Releases](https://github.com/vinodkd/axedup/releases).
+Download `aVs-<version>-x86_64.AppImage` from [Releases](https://github.com/vinodkd/avs/releases).
 
 ```bash
-chmod +x AxEdUp-*.AppImage
-./AxEdUp-*.AppImage
+chmod +x aVs-*.AppImage
+./aVs-*.AppImage
 ```
 
 **Prerequisite** (only needed on minimal installs — already present on most Linux desktops):
@@ -38,11 +38,11 @@ sudo apt install libgtk-3-0 libwebkit2gtk-4.0-37
 
 ### Windows
 
-Download `AxEdUp-<version>-Setup.exe` from [Releases](https://github.com/vinodkd/axedup/releases) and run it. Standard Next → Next → Install wizard; no dependencies required.
+Download `aVs-<version>-Setup.exe` from [Releases](https://github.com/vinodkd/avs/releases) and run it. Standard Next → Next → Install wizard; no dependencies required.
 
 ### macOS
 
-Download `AxEdUp-<version>.dmg` from [Releases](https://github.com/vinodkd/axedup/releases). Open the DMG and drag `AxEdUp.app` to Applications. On first launch, right-click → Open to bypass the Gatekeeper unsigned-app warning (one time only).
+Download `aVs-<version>.dmg` from [Releases](https://github.com/vinodkd/avs/releases). Open the DMG and drag `aVs.app` to Applications. On first launch, right-click → Open to bypass the Gatekeeper unsigned-app warning (one time only).
 
 ---
 
@@ -62,17 +62,17 @@ Download `AxEdUp-<version>.dmg` from [Releases](https://github.com/vinodkd/axedu
 **Requirements:** Python 3.10+, FFmpeg (system install or via `imageio-ffmpeg`), GTK3 + WebKit2GTK (Linux only)
 
 ```bash
-git clone https://github.com/vinodkd/axedup.git
-cd axedup
+git clone https://github.com/vinodkd/avs.git
+cd avs
 pip install -e .
-axedup-ui        # launch the GUI
+avs-ui        # launch the GUI
 ```
 
 To build a local AppImage (Linux):
 ```bash
 pip install pyinstaller
 bash packaging/build_appimage.sh
-# → dist/AxEdUp-<version>-x86_64.AppImage
+# → dist/aVs-<version>-x86_64.AppImage
 ```
 
 To regenerate icons after editing `packaging/icon.svg`:

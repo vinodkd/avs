@@ -31,16 +31,16 @@ from pathlib import Path
 
 from nicegui import ui
 
-from axedup import config
-from axedup.models.db import get_session as db_session
-from axedup.models.schema import (
+from avs import config
+from avs.models.db import get_session as db_session
+from avs.models.schema import (
     Clip, Export, Mark, MarkStatus, Profile, Session, SessionStatus, TelemetryPoint,
 )
-from axedup.prefs import get_prefs
-from axedup.presets.sports import display_name
-from axedup.ui import state
-from axedup.ui.state import StageState
-from axedup.ui.layout import sidebar
+from avs.prefs import get_prefs
+from avs.presets.sports import display_name
+from avs.ui import state
+from avs.ui.state import StageState
+from avs.ui.layout import sidebar
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -345,7 +345,7 @@ def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = Non
                 f'background-image:{hatch};'
                 f'border-radius:2px;cursor:pointer;transition:background 0.15s;'
                 f'display:flex;align-items:center;justify-content:center;overflow:hidden"'
-                f' onclick="axedupMarkClick(this)" title="{tip}">'
+                f' onclick="avsMarkClick(this)" title="{tip}">'
                 f'<span class="mark-icon" style="font-size:0.45rem;color:rgba(255,255,255,0.85);'
                 f'pointer-events:none">{icon}</span></div>'
             )
@@ -358,7 +358,7 @@ def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = Non
 def _profile_info_html(sport: str) -> str:
     """What the sport profile actually does to the pipeline, in plain words.
     Lists only fields that are wired in today; the rest are called out as inert."""
-    from axedup.presets.sports import DEFAULT_PROFILES
+    from avs.presets.sports import DEFAULT_PROFILES
     with db_session() as db:
         p = db.query(Profile).filter(Profile.sport == sport).first()
         vals = (
@@ -518,8 +518,8 @@ def session_page(session_id: str) -> None:
                 .all()
             ) if clip_ids else []
             mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
-            from axedup.processing.audio import clip_audio_spikes
-            from axedup.prefs import get_prefs as _get_prefs
+            from avs.processing.audio import clip_audio_spikes
+            from avs.prefs import get_prefs as _get_prefs
             _spike_k = float(_get_prefs().get('audio_spike_k', 3.0))
             _audio_spikes: dict[str, list[float]] = {
                 cid: clip_audio_spikes(cid, _spike_k) for cid in clip_ids
@@ -1125,7 +1125,7 @@ def session_page(session_id: str) -> None:
             if nb: nb.set_enabled(False); nb.set_text('Importing…')
             files_to_import = _new_files[:] if _new_files else None
             try:
-                from axedup.processing.ingest import ingest_folder
+                from avs.processing.ingest import ingest_folder
                 from nicegui import run as ng_run
                 session_obj = await ng_run.io_bound(
                     ingest_folder, src_p, ss.value if ss else 'unknown', None, files_to_import
@@ -1139,7 +1139,7 @@ def session_page(session_id: str) -> None:
                 first_clip = _db.query(Clip).filter(Clip.session_id == sid).order_by(Clip.clip_order).first()
             if first_clip:
                 still_dest = config.STILL_DIR / f'{sid}_still.jpg'
-                from axedup.processing.analysis import extract_source_still
+                from avs.processing.analysis import extract_source_still
                 from nicegui import run as ng_run2
                 await ng_run2.io_bound(extract_source_still, Path(first_clip.filepath), still_dest)
             state.start_task(f'{sid}_proxy')
@@ -1155,7 +1155,7 @@ def session_page(session_id: str) -> None:
 
             def _run_proxy():
                 try:
-                    from axedup.processing.analysis import build_proxy_only
+                    from avs.processing.analysis import build_proxy_only
                     build_proxy_only(sid, on_event=_on_event)
                     state.finish_task(f'{sid}_proxy')
                 except Exception as exc:
@@ -1247,7 +1247,7 @@ def session_page(session_id: str) -> None:
         if src is None:
             return
         from nicegui import run as ng_run
-        from axedup.processing.assembly import render_grade_swatches
+        from avs.processing.assembly import render_grade_swatches
         try:
             paths = await ng_run.io_bound(render_grade_swatches, src, config.STILL_DIR, session_id)
         except Exception as exc:
@@ -1406,7 +1406,7 @@ def session_page(session_id: str) -> None:
                    'vertical-align:text-bottom;margin-left:2px">mic</span>'
                    if has_audio else '')
             parts.append(
-                f'<div id="card-{mid}" onclick="axedupCardClick(\'{mid}\',\'{cid}\',{in_s})"{hint} '
+                f'<div id="card-{mid}" onclick="avsCardClick(\'{mid}\',\'{cid}\',{in_s})"{hint} '
                 f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
                 f'cursor:pointer;border:2px solid {bc};flex-shrink:0;position:relative">'
                 f'{img_part}'
@@ -1433,13 +1433,13 @@ def session_page(session_id: str) -> None:
         styles_js = json.dumps({st: {'c': c, 'img': img, 'icon': icon}
                                 for st, (c, img, icon) in _PICK_STYLE.items()})
         ui.run_javascript(f'''
-window.axedup_decisions = {json.dumps(_statuses)};
-window.axedup_boring = {json.dumps(boring_origin)};
-window.axedup_dull = {json.dumps(dull_origin)};
+window.avs_decisions = {json.dumps(_statuses)};
+window.avs_boring = {json.dumps(boring_origin)};
+window.avs_dull = {json.dumps(dull_origin)};
 var _AX_STYLES = {styles_js};
 
-function _axedupSet(mid, st) {{
-  window.axedup_decisions[mid] = st;
+function _avsSet(mid, st) {{
+  window.avs_decisions[mid] = st;
   var s = _AX_STYLES[st];
   var card = document.getElementById("card-" + mid);
   if (card) card.style.borderColor = s.c;
@@ -1453,24 +1453,24 @@ function _axedupSet(mid, st) {{
     if (ico) ico.textContent = s.icon;
   }}
   var n = {{'in': 0, 'out': 0, 'skip': 0, 'dull': 0}};
-  Object.values(window.axedup_decisions).forEach(function(v) {{ n[v] += 1; }});
+  Object.values(window.avs_decisions).forEach(function(v) {{ n[v] += 1; }});
   var txt = n['in'] + "\\u00b7" + n['out'];
-  if (Object.keys(window.axedup_boring).length > 0) txt += "\\u00b7" + n['skip'];
-  if (Object.keys(window.axedup_dull).length > 0)   txt += "\\u00b7" + n['dull'];
+  if (Object.keys(window.avs_boring).length > 0) txt += "\\u00b7" + n['skip'];
+  if (Object.keys(window.avs_dull).length > 0)   txt += "\\u00b7" + n['dull'];
   var el = document.getElementById("{pick_count_id}");
   if (el) el.textContent = txt;
 }}
 
-function _axedupCycle(mid) {{
-  var cur = window.axedup_decisions[mid];
+function _avsCycle(mid) {{
+  var cur = window.avs_decisions[mid];
   var next;
-  if (window.axedup_dull[mid])        next = (cur === "dull" ? "in" : "dull");
-  else if (window.axedup_boring[mid]) next = (cur === "skip" ? "in" : "skip");
-  else                                next = (cur === "in" ? "out" : "in");
-  _axedupSet(mid, next);
+  if (window.avs_dull[mid])        next = (cur === "dull" ? "in" : "dull");
+  else if (window.avs_boring[mid]) next = (cur === "skip" ? "in" : "skip");
+  else                             next = (cur === "in" ? "out" : "in");
+  _avsSet(mid, next);
 }}
 
-function _axedupSeek(cid, ins) {{
+function _avsSeek(cid, ins) {{
   var v = document.getElementById("main-player");
   if (!v) return;
   v.style.display = "block";
@@ -1490,15 +1490,15 @@ function _axedupSeek(cid, ins) {{
   else v.addEventListener("loadedmetadata", seekTo, {{once: true}});
 }}
 
-window.axedupMarkClick = function(el) {{
+window.avsMarkClick = function(el) {{
   var mid = el.dataset.mid, cid = el.dataset.cid, ins = parseFloat(el.dataset.ins);
-  _axedupCycle(mid);
-  _axedupSeek(cid, ins);
+  _avsCycle(mid);
+  _avsSeek(cid, ins);
 }};
 
-window.axedupCardClick = function(mid, cid, ins) {{
-  _axedupCycle(mid);
-  _axedupSeek(cid, ins);
+window.avsCardClick = function(mid, cid, ins) {{
+  _avsCycle(mid);
+  _avsSeek(cid, ins);
 }};
 ''')
 
@@ -1521,9 +1521,9 @@ window.axedupCardClick = function(mid, cid, ins) {{
 
         def _run():
             try:
-                from axedup.processing.analysis import run_motion_scan, extract_mark_thumbnails
-                from axedup.processing.audio import run_audio_scan
-                from axedup.processing.peaks import (
+                from avs.processing.analysis import run_motion_scan, extract_mark_thumbnails
+                from avs.processing.audio import run_audio_scan
+                from avs.processing.peaks import (
                     detect_peaks, detect_audio_spikes,
                     detect_boring_regions, detect_dull_gaps,
                 )
@@ -1564,7 +1564,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
         _set_act('scan', None)
 
     async def _save_and_combine() -> None:
-        raw = await ui.run_javascript('JSON.stringify(window.axedup_decisions || {})')
+        raw = await ui.run_javascript('JSON.stringify(window.avs_decisions || {})')
         js_dec = json.loads(raw)
         _to_status = {'in': MarkStatus.ACCEPTED, 'out': MarkStatus.REJECTED,
                       'skip': MarkStatus.BORING, 'dull': MarkStatus.DULL}
@@ -1601,7 +1601,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
 
         def _run():
             try:
-                from axedup.processing.assembly import assemble_session
+                from avs.processing.assembly import assemble_session
                 assemble_session(session_id, grade_override=grade, source_filter=src_val,
                                  on_progress=_on_combine_progress)
                 state.finish_task(key)
@@ -1671,7 +1671,7 @@ window.axedupCardClick = function(mid, cid, ins) {{
 
         def _run():
             try:
-                from axedup.processing.export import export_session
+                from avs.processing.export import export_session
                 export_session(
                     session_id, aspects=aspects,
                     output_dir=Path(out_dir) if out_dir else None,

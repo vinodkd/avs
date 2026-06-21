@@ -15,10 +15,10 @@ from typing import Callable
 
 from rich.console import Console
 
-from axedup import config
-from axedup.models.db import get_session
-from axedup.models.schema import Clip, Mark, MarkStatus, Profile, Session, SessionStatus
-from axedup.presets.sports import DEFAULT_PROFILES
+from avs import config
+from avs.models.db import get_session
+from avs.models.schema import Clip, Mark, MarkStatus, Profile, Session, SessionStatus
+from avs.presets.sports import DEFAULT_PROFILES
 
 # FFmpeg eq/colorbalance filter string per grade style (None = no adjustment).
 # warm/cool shift midtones (rm/bm), not just shadows — action footage is mostly

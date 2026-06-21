@@ -4,18 +4,18 @@ from pathlib import Path
 
 import imageio_ffmpeg
 
-APP_NAME = "axedup"
+APP_NAME = "avs"
 
 # --- Directories ---
 
 # Where finished export files are written (user-visible)
-OUTPUT_DIR = Path(os.environ.get("AXEDUP_OUTPUT_DIR", Path.home() / "Videos" / "AxEdUp"))
+OUTPUT_DIR = Path(os.environ.get("AVS_OUTPUT_DIR", Path.home() / "Videos" / "aVs"))
 
 # App data: database lives here
-DATA_DIR = Path(os.environ.get("AXEDUP_DATA_DIR", Path.home() / ".local" / "share" / APP_NAME))
+DATA_DIR = Path(os.environ.get("AVS_DATA_DIR", Path.home() / ".local" / "share" / APP_NAME))
 
 # Cache: proxies, thumbnails, previews, temp segments (safe to delete)
-CACHE_DIR = Path(os.environ.get("AXEDUP_CACHE_DIR", Path.home() / ".cache" / APP_NAME))
+CACHE_DIR = Path(os.environ.get("AVS_CACHE_DIR", Path.home() / ".cache" / APP_NAME))
 
 PROXY_DIR       = CACHE_DIR / "proxies"
 THUMB_DIR       = CACHE_DIR / "thumbnails"

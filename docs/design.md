@@ -1,10 +1,10 @@
-# AxEdUp v1 — Design Document
+# aVs v1 — Design Document
 
 ## What This Is
 
 A Python CLI tool that processes action camera footage from an SD card, automatically identifies interesting moments using computer vision and telemetry data, assembles a finished video using sport-specific presets, and exports it ready for upload. A minimal NiceGUI interface and local LLM text input are added in Phase 2 on top of the same pipeline.
 
-**Core principle:** AxEdUp is a review-and-approve tool, not a video editor. The computer does the editing; the user directs and approves. This shapes every architecture and UX decision.
+**Core principle:** aVs is a review-and-approve tool, not a video editor. The computer does the editing; the user directs and approves. This shapes every architecture and UX decision.
 
 ---
 
@@ -28,7 +28,7 @@ Electron bundles ~150MB of Chromium. Tauri on Linux depends on WebKitGTK, which 
 FFmpeg and OpenCV are C/C++ under the hood — Python is only the orchestrator. The FFmpeg C API (libav*) is notoriously complex; most C++ video apps call the ffmpeg binary as a subprocess anyway. PySceneDetect has no C++ equivalent at the same quality. Python iteration speed is more valuable than marginal C++ performance gains at prototype stage. If profiling proves Python is the bottleneck (not the underlying C libraries), hot paths can be rewritten later.
 
 ### Why not a "full" video editor UX?
-Existing tools (Premiere, DaVinci Resolve, even iMovie) present an open-ended creative canvas. AxEdUp users are not editors — they want a good video, not a masterpiece. The closest analogy is Frame.io or a review-and-approval workflow tool: the computer assembles, the user reviews. This means no timeline scrubbing, no per-clip effects panel, no keyframing. Coarse controls only: accept/reject clips, swap music, toggle overlays, change color grade style.
+Existing tools (Premiere, DaVinci Resolve, even iMovie) present an open-ended creative canvas. aVs users are not editors — they want a good video, not a masterpiece. The closest analogy is Frame.io or a review-and-approval workflow tool: the computer assembles, the user reviews. This means no timeline scrubbing, no per-clip effects panel, no keyframing. Coarse controls only: accept/reject clips, swap music, toggle overlays, change color grade style.
 
 ### Why Python throughout?
 Python is the native language of the video processing ecosystem (FFmpeg, OpenCV, PySceneDetect all have mature Python bindings). Cross-platform by design: `pathlib.Path`, `imageio-ffmpeg`, `watchdog`. Runs on Linux/Mac/Windows with minimal changes. If mobile standalone processing becomes a requirement, the pipeline would need rewriting (Python is not viable on iOS; painful on Android) — but that decision can be made when mobile is a real requirement, not now.
@@ -50,49 +50,49 @@ The current Python architecture does not preclude either future. It just doesn't
 ### Phase 1: CLI
 
 ```
-axedup/
+avs/
   cli.py          ← click/typer commands
   processing/     ← pure Python pipeline modules
   models/         ← SQLAlchemy + SQLite
   presets/        ← sport profiles, LUTs, music
 
 User runs:
-  python -m axedup ingest /media/SDCARD --sport mtb
-  python -m axedup analyze <session_id>
-  python -m axedup review <session_id>     ← opens static HTML in browser
-  python -m axedup assemble <session_id>
-  python -m axedup export <session_id>
+  python -m avs ingest /media/SDCARD --sport mtb
+  python -m avs analyze <session_id>
+  python -m avs review <session_id>     ← opens static HTML in browser
+  python -m avs assemble <session_id>
+  python -m avs export <session_id>
 ```
 
 ### UI: NiceGUI (primary interface)
 
 ```
-axedup/
+avs/
   ui/             ← NiceGUI screens
   llm/            ← Ollama client, prompt templates (future)
   main.py         ← packaged app entry point (migrations → init_db → UI)
   updater.py      ← background GitHub update check
 
 User runs:
-  axedup ui               ← CLI → init_db → NiceGUI native window
-  axedup-ui               ← packaged entry point (same flow)
-  dist/axedup/axedup      ← PyInstaller bundle (same flow)
+  avs ui               ← CLI → init_db → NiceGUI native window
+  avs-ui               ← packaged entry point (same flow)
+  dist/avs/avs      ← PyInstaller bundle (same flow)
 ```
 
 NiceGUI handles the server and browser communication internally — no FastAPI, no React, no manual WebSocket code. The same processing modules are called directly from NiceGUI event handlers.
 
 ### Packaging
 
-One PyInstaller spec (`axedup.spec`) handles all three platforms via `sys.platform` conditionals — pywebview backend, icon format, UPX flag, and macOS `BUNDLE` step are all gated at build time.
+One PyInstaller spec (`avs.spec`) handles all three platforms via `sys.platform` conditionals — pywebview backend, icon format, UPX flag, and macOS `BUNDLE` step are all gated at build time.
 
 ```
-axedup.spec                  ← cross-platform PyInstaller spec
+avs.spec                  ← cross-platform PyInstaller spec
 packaging/
   build_appimage.sh          ← Linux:   PyInstaller → AppImage
   build_windows.ps1          ← Windows: PyInstaller → Inno Setup .exe wizard
   build_macos.sh             ← macOS:   PyInstaller → create-dmg .dmg
-  axedup.iss                 ← Inno Setup installer definition (Windows)
-  axedup.desktop             ← Linux .desktop entry
+  avs.iss                 ← Inno Setup installer definition (Windows)
+  avs.desktop             ← Linux .desktop entry
 .github/workflows/
   release.yml                ← three parallel jobs on tag push, each uploads to same GitHub Release
 ```
@@ -101,9 +101,9 @@ Per-OS artifact:
 
 | OS | Artifact | Notes |
 |---|---|---|
-| Linux | `AxEdUp-<ver>-x86_64.AppImage` | Needs `libgtk-3-0 libwebkit2gtk-4.0-37` on minimal installs |
-| Windows | `AxEdUp-<ver>-Setup.exe` | Fully self-contained; WebView2 ships with Win10/11 |
-| macOS | `AxEdUp-<ver>.dmg` | Drag-to-Applications; first launch needs right-click → Open (Gatekeeper) |
+| Linux | `aVs-<ver>-x86_64.AppImage` | Needs `libgtk-3-0 libwebkit2gtk-4.0-37` on minimal installs |
+| Windows | `aVs-<ver>-Setup.exe` | Fully self-contained; WebView2 ships with Win10/11 |
+| macOS | `aVs-<ver>.dmg` | Drag-to-Applications; first launch needs right-click → Open (Gatekeeper) |
 
 Startup sequence (packaged):
 1. `main.py` runs Alembic `upgrade head` (idempotent, safe to run every launch)
@@ -136,15 +136,15 @@ Startup sequence (packaged):
 ## Project Structure
 
 ```
-axedup/
+avs/
 ├── CLAUDE.md
 ├── docs/
 │   ├── requirements.md
 │   └── design.md
 ├── brainstorm/                  (read-only reference)
-├── axedup/
+├── avs/
 │   ├── __init__.py
-│   ├── __main__.py              (python -m axedup entry point)
+│   ├── __main__.py              (python -m avs entry point)
 │   ├── cli.py                   (Typer CLI commands)
 │   ├── config.py                (paths, constants, settings)
 │   ├── processing/
@@ -287,7 +287,7 @@ CREATE TABLE exports (
 
 -- App-level UI preferences (default sport/grade/scan method, export defaults).
 -- One row per key, JSON-encoded value. Stored in the DB (not a config file) so
--- all app state lives in one place. Accessed via axedup/prefs.py.
+-- all app state lives in one place. Accessed via avs/prefs.py.
 CREATE TABLE app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -299,7 +299,7 @@ CREATE TABLE app_settings (
 ## CLI Interface (Phase 1)
 
 ```
-python -m axedup --help
+python -m avs --help
 
 Commands:
   ingest    Scan a folder or SD card and create a session
@@ -315,49 +315,49 @@ Commands:
 
 ```bash
 # Import footage from SD card or folder
-axedup ingest /media/SDCARD/DCIM --sport mtb
-axedup ingest ~/footage/todays-ride --sport mtb
+avs ingest /media/SDCARD/DCIM --sport mtb
+avs ingest ~/footage/todays-ride --sport mtb
 # → prints session ID, clip count, total duration, camera brand detected
 
 # Run analysis (can be run immediately after ingest; picks up where it left off)
-axedup analyze <session_id>             # full proxy-based analysis (default)
-axedup analyze <session_id> --jpg       # faster JPEG frame extraction for motion (~15× faster)
-axedup analyze <session_id> --proxy     # explicit proxy-based motion analysis
+avs analyze <session_id>             # full proxy-based analysis (default)
+avs analyze <session_id> --jpg       # faster JPEG frame extraction for motion (~15× faster)
+avs analyze <session_id> --proxy     # explicit proxy-based motion analysis
 # → progress bar per clip: proxy, thumbnails, scene detect, motion intensity
 # → prints candidate mark summary on completion
 # Both --jpg and --proxy can be run on the same session; results are kept separately
 # and shown as separate sections in review.
 
 # Review candidates (Pass 2)
-axedup review <session_id>
-# → generates /tmp/axedup_review_<session_id>.html and opens in default browser
+avs review <session_id>
+# → generates /tmp/avs_review_<session_id>.html and opens in default browser
 # → user checks boxes, clicks Submit
 # → CLI polls for response file, applies decisions to database
 
 # Assemble preview (Pass 3)
-axedup assemble <session_id>                      # uses all accepted marks
-axedup assemble <session_id> --source jpg         # only motion_peak_jpg marks
-axedup assemble <session_id> --source proxy       # only motion_peak marks
-axedup assemble <session_id> --source telemetry   # only telemetry_peak marks
+avs assemble <session_id>                      # uses all accepted marks
+avs assemble <session_id> --source jpg         # only motion_peak_jpg marks
+avs assemble <session_id> --source proxy       # only motion_peak marks
+avs assemble <session_id> --source telemetry   # only telemetry_peak marks
 # → warns if multiple sources present and no --source given (would produce duplicates)
 # → marks ordered by (clip.clip_order, mark.in_s) for correct chronological sequence
 # → FFmpeg concat + grade filter + audio mix + overlays
 # → opens preview with system video player on completion
 
 # Refine (re-runs assembly with changes)
-axedup refine <session_id> --remove <mark_id>
-axedup refine <session_id> --swap-music
-axedup refine <session_id> --grade cinematic
-axedup refine <session_id> --no-overlay
-axedup refine <session_id> --source jpg
+avs refine <session_id> --remove <mark_id>
+avs refine <session_id> --swap-music
+avs refine <session_id> --grade cinematic
+avs refine <session_id> --no-overlay
+avs refine <session_id> --source jpg
 
 # Export
-axedup export <session_id> --aspect 16:9 9:16
-# → outputs to ~/Videos/AxEdUp/<date>_<sport>_<aspect>.mp4
+avs export <session_id> --aspect 16:9 9:16
+# → outputs to ~/Videos/aVs/<date>_<sport>_<aspect>.mp4
 
 # Session management
-axedup sessions               # list all
-axedup sessions --status ready  # filter by status
+avs sessions               # list all
+avs sessions --status ready  # filter by status
 ```
 
 ---
@@ -469,7 +469,7 @@ boring's rescue.
 ### Stage 4 — Review HTML (`cli.py` + `processing/review.py`)
 
 ```
-generate /tmp/axedup_review_<session_id>.html:
+generate /tmp/avs_review_<session_id>.html:
   for each candidate mark (sorted by score desc):
     <div class="card">
       <img src="file:///cache/thumbs/clip_id/nearest_thumb.jpg">
@@ -477,7 +477,7 @@ generate /tmp/axedup_review_<session_id>.html:
       <input type="checkbox" name="mark_{id}" checked>
     </div>
   <button onclick="submit()">Apply</button>
-  <script>submit writes JSON to /tmp/axedup_review_<session_id>_response.json</script>
+  <script>submit writes JSON to /tmp/avs_review_<session_id>_response.json</script>
 
 open HTML in default browser (webbrowser.open)
 poll for response file (1s interval, 5min timeout)
@@ -517,7 +517,7 @@ for each requested aspect ratio:
 encode per target:
   libx264 -crf 20 -preset slow -c:a aac -b:a 192k
 
-output → ~/Videos/AxEdUp/{YYYY-MM-DD}_{sport}_{aspect}.mp4
+output → ~/Videos/aVs/{YYYY-MM-DD}_{sport}_{aspect}.mp4
 write exports record
 update session status = 'exported'
 ```
@@ -560,7 +560,7 @@ Fallback: **Llama 3.2 3B** (~2GB) if Phi-3.5 unavailable.
 
 ## Sport Presets
 
-Defined in `axedup/presets/sports.py` as Python dataclasses.
+Defined in `avs/presets/sports.py` as Python dataclasses.
 
 | Sport | Grade | Music energy | Speed threshold | Motion threshold | YT duration |
 |---|---|---|---|---|---|
@@ -608,7 +608,7 @@ Grades are FFmpeg `eq`/`colorbalance` filter strings (`GRADE_FILTERS` in `proces
 
 ## UI Design (NiceGUI)
 
-The NiceGUI desktop UI is the primary interface. `axedup ui` (or `python run.py ui`) launches it; it calls the same processing modules as the CLI — no separate backend, no duplication of pipeline logic. The CLI lags behind the UI and its refactor is parked (see `docs/backlog.md` → "CLI — power users").
+The NiceGUI desktop UI is the primary interface. `avs ui` (or `python run.py ui`) launches it; it calls the same processing modules as the CLI — no separate backend, no duplication of pipeline logic. The CLI lags behind the UI and its refactor is parked (see `docs/backlog.md` → "CLI — power users").
 
 Full layout rationale and behaviour detail: `docs/plan_ui_redesign_2.md` (the shipped v2 redesign).
 
@@ -662,7 +662,7 @@ Platform tiles (YouTube, Instagram), per-platform metadata, auth flow. Not imple
 Two cards:
 
 - **Preferences** — default sport, default grade, default scan method, export
-  aspects, output folder. Stored in the `app_settings` table via `axedup/prefs.py`;
+  aspects, output folder. Stored in the `app_settings` table via `avs/prefs.py`;
   consumed by the session page as pre-selected values.
 - **Sport profiles** — per-sport editor over all `Profile` fields, split into
   "used by the pipeline" (grade, motion threshold, scene detection) and "stored but

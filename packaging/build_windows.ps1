@@ -1,4 +1,4 @@
-# Build AxEdUp Windows installer (.exe) using PyInstaller + Inno Setup.
+# Build aVs Windows installer (.exe) using PyInstaller + Inno Setup.
 #
 # Prerequisites:
 #   pip install pyinstaller
@@ -7,7 +7,7 @@
 # Run from project root:
 #   .\packaging\build_windows.ps1
 #
-# Output: dist\AxEdUp-<version>-Setup.exe
+# Output: dist\aVs-<version>-Setup.exe
 
 $ErrorActionPreference = "Stop"
 
@@ -15,12 +15,12 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $projectRoot
 
-$VERSION = python -c "from axedup import __version__; print(__version__)"
-Write-Host "==> Building AxEdUp v$VERSION"
+$VERSION = python -c "from avs import __version__; print(__version__)"
+Write-Host "==> Building aVs v$VERSION"
 
 # ── 1. PyInstaller ────────────────────────────────────────────────────────────
 Write-Host "==> Running PyInstaller..."
-pyinstaller axedup.spec --noconfirm
+pyinstaller avs.spec --noconfirm
 
 # ── 2. Inno Setup ─────────────────────────────────────────────────────────────
 Write-Host "==> Running Inno Setup..."
@@ -33,8 +33,8 @@ $isccPaths = @(
 $iscc = $isccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { $iscc = "iscc" }   # rely on PATH
 
-& $iscc "/DMyAppVersion=$VERSION" "packaging\axedup.iss"
+& $iscc "/DMyAppVersion=$VERSION" "packaging\avs.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (exit $LASTEXITCODE)" }
 
 Write-Host ""
-Write-Host "==> Done: dist\AxEdUp-$VERSION-Setup.exe"
+Write-Host "==> Done: dist\aVs-$VERSION-Setup.exe"

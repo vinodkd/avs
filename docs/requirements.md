@@ -1,4 +1,4 @@
-# AxEdUp v1 — Requirements
+# aVs v1 — Requirements
 
 ## Problem Statement
 
@@ -16,7 +16,7 @@ An action sports enthusiast who:
 
 **End-of-day editing session.** Not at the trailhead, not on a phone. The user is home, sitting at a computer, SD card available. Speed and low cognitive load are the priorities.
 
-**AxEdUp is a review-and-approve tool, not a video editor.** The computer does the editing; the user directs and approves. This distinction shapes every UI and workflow decision.
+**aVs is a review-and-approve tool, not a video editor.** The computer does the editing; the user directs and approves. This distinction shapes every UI and workflow decision.
 
 ---
 
@@ -86,7 +86,7 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 - Re-renders only the affected section where possible
 
 ### FR-9: Export
-- Exports to local folder (~/Videos/AxEdUp/)
+- Exports to local folder (~/Videos/aVs/)
 - 16:9 (YouTube) and/or 9:16 (Reels/Shorts/TikTok) in one pass
 - H.264 (libx264) encoding — no H.265, no GPU codecs in v1
 - File export only — no direct platform upload in v1
@@ -142,7 +142,7 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 | React frontend | Same — NiceGUI covers the prototype UI need in pure Python |
 | Camera WiFi / BLE import | Per-brand SDK complexity; SD card covers the use case |
 | Direct upload to platforms | Platform OAuth complexity |
-| 360 footage (INSV) | Different pipeline — tracked as AxEdUp360 |
+| 360 footage (INSV) | Different pipeline — tracked as aVs360 |
 | Mobile builds | Desktop first; Flutter is the likely path when this becomes real |
 | Cloud / hosted backend | Not a goal |
 | Multi-day trip sessions | Session grouping complexity — v2 |

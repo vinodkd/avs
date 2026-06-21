@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build AxEdUp macOS DMG using PyInstaller + create-dmg.
+# Build aVs macOS DMG using PyInstaller + create-dmg.
 #
 # Prerequisites:
 #   brew install create-dmg
@@ -8,19 +8,19 @@
 # Run from project root:
 #   bash packaging/build_macos.sh
 #
-# Output: dist/AxEdUp-<version>.dmg
+# Output: dist/aVs-<version>.dmg
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION=$(python3 -c "from axedup import __version__; print(__version__)")
-DMG_OUT="dist/AxEdUp-${VERSION}.dmg"
+VERSION=$(python3 -c "from avs import __version__; print(__version__)")
+DMG_OUT="dist/aVs-${VERSION}.dmg"
 
-echo "==> Building AxEdUp v${VERSION}"
+echo "==> Building aVs v${VERSION}"
 
 # ── 1. PyInstaller ────────────────────────────────────────────────────────────
 echo "==> Running PyInstaller..."
-pyinstaller axedup.spec --noconfirm
+pyinstaller avs.spec --noconfirm
 
 # ── 2. DMG ────────────────────────────────────────────────────────────────────
 echo "==> Building DMG..."
@@ -31,23 +31,23 @@ rm -f "$DMG_OUT"
 
 if command -v create-dmg &>/dev/null; then
     ARGS=(
-        --volname "AxEdUp"
+        --volname "aVs"
         --window-pos 200 120
         --window-size 600 400
         --icon-size 100
-        --icon "AxEdUp.app" 175 190
-        --hide-extension "AxEdUp.app"
+        --icon "aVs.app" 175 190
+        --hide-extension "aVs.app"
         --app-drop-link 425 185
     )
     # Add volume icon only if .icns exists
-    if [ -f "packaging/axedup.icns" ]; then
-        ARGS+=(--volicon "packaging/axedup.icns")
+    if [ -f "packaging/avs.icns" ]; then
+        ARGS+=(--volicon "packaging/avs.icns")
     fi
-    create-dmg "${ARGS[@]}" "$DMG_OUT" "dist/AxEdUp.app"
+    create-dmg "${ARGS[@]}" "$DMG_OUT" "dist/aVs.app"
 else
     # Fallback: plain hdiutil (no fancy layout, but functional)
     echo "==> create-dmg not found; falling back to hdiutil..."
-    hdiutil create -volname "AxEdUp" -srcfolder "dist/AxEdUp.app" \
+    hdiutil create -volname "aVs" -srcfolder "dist/aVs.app" \
         -ov -format UDZO "$DMG_OUT"
 fi
 

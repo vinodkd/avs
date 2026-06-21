@@ -2,11 +2,11 @@ import shutil
 
 from nicegui import ui
 
-from axedup import config
-from axedup.models.db import get_session as db_session
-from axedup.models.schema import Clip, Mark, Session, SessionStatus
-from axedup.presets.sports import display_name
-from axedup.ui.layout import sidebar
+from avs import config
+from avs.models.db import get_session as db_session
+from avs.models.schema import Clip, Mark, Session, SessionStatus
+from avs.presets.sports import display_name
+from avs.ui.layout import sidebar
 
 
 @ui.page('/')
@@ -21,11 +21,11 @@ def home_page() -> None:
         '</script>'
     )
 
-    from axedup.updater import get_update_available
+    from avs.updater import get_update_available
     new_ver = get_update_available()
     if new_ver:
         ui.notify(
-            f'Update available: v{new_ver} — visit github.com/vinodkd/axedup/releases',
+            f'Update available: v{new_ver} — visit github.com/vinodkd/avs/releases',
             type='info', timeout=0, close_button=True,
         )
 

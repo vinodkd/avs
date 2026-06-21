@@ -1,4 +1,4 @@
-# AxEdUp: Action Camera Editing & Upload — Brainstorm Overview
+# aVs: Action Camera Editing & Upload — Brainstorm Overview
 
 ## The Problem
 
@@ -37,7 +37,7 @@ Key form factor principles:
 - Direct publish to 3–4 platforms in one step
 - Works offline — not everyone has cell service at the location
 
-## Cross-Platform Gaps AxEdUp Could Fill
+## Cross-Platform Gaps aVs Could Fill
 
 | Feature | GoPro Quik | DJI LightCut | Insta360 App |
 |---|---|---|---|

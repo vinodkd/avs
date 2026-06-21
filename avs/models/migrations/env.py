@@ -14,14 +14,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from axedup import config as axedup_config
-from axedup.models.schema import Base
+from avs import config as avs_config  # noqa: E402
+from avs.models.schema import Base
 
 # Ensure data directories exist before Alembic tries to open the DB file
-axedup_config.ensure_dirs()
+avs_config.ensure_dirs()
 
 # Point Alembic at the app's SQLite database
-config.set_main_option("sqlalchemy.url", f"sqlite:///{axedup_config.DB_PATH}")
+config.set_main_option("sqlalchemy.url", f"sqlite:///{avs_config.DB_PATH}")
 
 target_metadata = Base.metadata
 

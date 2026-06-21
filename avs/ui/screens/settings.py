@@ -1,6 +1,6 @@
 """Settings screen — UI preferences + per-sport profile editor.
 
-Preferences are UI defaults stored in a JSON file (axedup/prefs.py).
+Preferences are UI defaults stored in a JSON file (avs/prefs.py).
 Profile editing creates/updates the sport's DB row; reset deletes the row so
 the built-in defaults in presets/sports.py apply again (same fallback the
 pipeline uses).
@@ -9,13 +9,13 @@ from datetime import datetime
 
 from nicegui import ui
 
-from axedup import config
-from axedup.models.db import get_session as db_session
-from axedup.models.schema import Profile
-from axedup.prefs import get_prefs, save_prefs
-from axedup.presets.sports import DEFAULT_PROFILES, display_name
-from axedup.processing.assembly import GRADE_FILTERS
-from axedup.ui.layout import sidebar
+from avs import config
+from avs.models.db import get_session as db_session
+from avs.models.schema import Profile
+from avs.prefs import get_prefs, save_prefs
+from avs.presets.sports import DEFAULT_PROFILES, display_name
+from avs.processing.assembly import GRADE_FILTERS
+from avs.ui.layout import sidebar
 
 _GRADES   = list(GRADE_FILTERS.keys())
 _METHODS  = {'jpg': 'Quick (1fps sample)', 'proxy': 'Full (all frames)'}

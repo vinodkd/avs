@@ -64,7 +64,7 @@
 - D-Log footage requires LUT application before sharing — most users apply DJI's own LUTs
 - GPS track can be exported for mapping but requires manual workflow
 
-## Strengths for AxEdUp
+## Strengths for aVs
 - SRT telemetry format is simple to parse (plain text)
 - D-Log flat profile footage looks great after a LUT — automatic LUT application is a clear value-add
 - LightCut is newer and more open than Quik — less locked-in community
