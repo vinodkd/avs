@@ -25,7 +25,6 @@ Routes: /session/{session_id}  (existing session)
 import inspect
 import json
 import shutil
-import threading
 import time
 from pathlib import Path
 
@@ -1125,10 +1124,10 @@ def session_page(session_id: str) -> None:
             if nb: nb.set_enabled(False); nb.set_text('Importing…')
             files_to_import = _new_files[:] if _new_files else None
             try:
-                from avs.processing.ingest import ingest_folder
+                from avs.engine import pipeline as engine
                 from nicegui import run as ng_run
                 session_obj = await ng_run.io_bound(
-                    ingest_folder, src_p, ss.value if ss else 'unknown', None, files_to_import
+                    engine.ingest_folder, src_p, ss.value if ss else 'unknown', None, files_to_import
                 )
             except Exception as exc:
                 if nb: nb.set_enabled(True); nb.set_text('Import & build working copy →')
@@ -1144,7 +1143,7 @@ def session_page(session_id: str) -> None:
                 await ng_run2.io_bound(extract_source_still, Path(first_clip.filepath), still_dest)
             state.start_task(f'{sid}_proxy')
 
-            def _on_event(clip_id, stage, evt_status, message, completed, total):
+            def _on_proxy_progress(clip_id, stage, evt_status, message, completed, total):
                 if clip_id is None: return
                 if evt_status in ('running', 'done', 'skipped'):
                     state.update_clip_stage(sid, clip_id, stage, evt_status)
@@ -1153,15 +1152,11 @@ def session_page(session_id: str) -> None:
                     state.update_clip_stage(sid, clip_id, stage, 'running',
                                             pct=pct, completed=completed, total=total, message=message)
 
-            def _run_proxy():
-                try:
-                    from avs.processing.analysis import build_proxy_only
-                    build_proxy_only(sid, on_event=_on_event)
-                    state.finish_task(f'{sid}_proxy')
-                except Exception as exc:
-                    state.finish_task(f'{sid}_proxy', error=str(exc))
-
-            threading.Thread(target=_run_proxy, daemon=True).start()
+            engine.run_proxy(
+                sid,
+                on_progress=_on_proxy_progress,
+                on_done=lambda err: state.finish_task(f'{sid}_proxy', error=err),
+            )
             ui.navigate.to(f'/session/{sid}')
 
         next_action['fn'] = _do_start
@@ -1505,12 +1500,13 @@ window.avsCardClick = function(mid, cid, ins) {{
     # ── Action handlers ────────────────────────────────────────────────────────
 
     def _start_scan() -> None:
+        from avs.engine import pipeline as engine
         method = detect_method_ref[0]
         _pending_methods[session_id] = method
         state.start_task(f'{session_id}_scan')
         task_start[0] = time.time()
 
-        def _on_event(clip_id, stage, evt_status, message, completed, total):
+        def _on_progress(clip_id, stage, evt_status, message, completed, total):
             if clip_id is None: return
             if evt_status in ('running', 'done', 'skipped'):
                 state.update_clip_stage(session_id, clip_id, stage, evt_status)
@@ -1519,33 +1515,25 @@ window.avsCardClick = function(mid, cid, ins) {{
                 state.update_clip_stage(session_id, clip_id, stage, 'running',
                                         pct=pct, completed=completed, total=total, message=message)
 
-        def _run():
-            try:
-                from avs.processing.analysis import run_motion_scan, extract_mark_thumbnails
-                from avs.processing.audio import run_audio_scan
-                from avs.processing.peaks import (
-                    detect_peaks, detect_audio_spikes,
-                    detect_boring_regions, detect_dull_gaps,
-                )
-                run_motion_scan(session_id, motion_method=method, on_event=_on_event)
-                run_audio_scan(session_id, on_event=_on_event)
-                state.finish_task(f'{session_id}_scan')
-                state.start_task(f'{session_id}_highlights')
-                detect_peaks(session_id, on_event=_on_event, motion_method=method)
-                detect_audio_spikes(session_id, on_event=_on_event)
-                detect_boring_regions(session_id, on_event=_on_event, motion_method=method)
-                detect_dull_gaps(session_id, on_event=_on_event)
-                state.finish_task(f'{session_id}_highlights')
-                with db_session() as _db:
-                    _s = _db.query(Session).filter(Session.id == session_id).first()
-                    if _s: _s.status = SessionStatus.READY
-                state.start_task(f'{session_id}_thumbnails')
-                extract_mark_thumbnails(session_id, on_event=_on_event)
-                state.finish_task(f'{session_id}_thumbnails')
-            except Exception as exc:
-                state.finish_task(f'{session_id}_scan', error=str(exc))
+        def _on_thumbnails_done(err):
+            state.finish_task(f'{session_id}_thumbnails', error=err)
 
-        threading.Thread(target=_run, daemon=True).start()
+        def _on_peaks_done(err):
+            state.finish_task(f'{session_id}_highlights', error=err)
+            if err: return
+            with db_session() as _db:
+                _s = _db.query(Session).filter(Session.id == session_id).first()
+                if _s: _s.status = SessionStatus.READY
+            state.start_task(f'{session_id}_thumbnails')
+            engine.run_thumbnails(session_id, on_progress=_on_progress, on_done=_on_thumbnails_done)
+
+        def _on_scan_done(err):
+            state.finish_task(f'{session_id}_scan', error=err)
+            if err: return
+            state.start_task(f'{session_id}_highlights')
+            engine.run_peaks(session_id, method, on_progress=_on_progress, on_done=_on_peaks_done)
+
+        engine.run_scan(session_id, method, on_progress=_on_progress, on_done=_on_scan_done)
         _scan_started[0] = True
         # Create stage bars if the page loaded before the scan started (bar_refs empty)
         if strip_ref[0] and not bar_refs:
@@ -1599,15 +1587,14 @@ window.avsCardClick = function(mid, cid, ins) {{
                                        pct=int(done / total * 100) if total else None,
                                        message=f'{done} of {total} segments' if total else None)
 
-        def _run():
-            try:
-                from avs.processing.assembly import assemble_session
-                assemble_session(session_id, grade_override=grade, source_filter=src_val,
-                                 on_progress=_on_combine_progress)
-                state.finish_task(key)
-            except Exception as exc:
-                state.finish_task(key, error=str(exc))
-        threading.Thread(target=_run, daemon=True).start()
+        from avs.engine import pipeline as engine
+        engine.run_assemble(
+            session_id,
+            grade=grade, source_filter=src_val,
+            remove_mark_ids=[], swap_music=False, disable_overlay=False,
+            on_progress=_on_combine_progress,
+            on_done=lambda err: state.finish_task(key, error=err),
+        )
 
         _update_action_bar_for_stage('combine')
         if 'combine' in dot_refs: dot_refs['combine'].set_content(_dot_html('running'))
@@ -1669,18 +1656,14 @@ window.avsCardClick = function(mid, cid, ins) {{
             # Shared state, not page refs — survives navigating away and back
             state.update_task_progress(key, pct=pct, message=aspect)
 
-        def _run():
-            try:
-                from avs.processing.export import export_session
-                export_session(
-                    session_id, aspects=aspects,
-                    output_dir=Path(out_dir) if out_dir else None,
-                    on_progress=_on_progress,
-                )
-                state.finish_task(key)
-            except Exception as exc:
-                state.finish_task(key, error=str(exc))
-        threading.Thread(target=_run, daemon=True).start()
+        from avs.engine import pipeline as engine
+        engine.run_export(
+            session_id,
+            aspects=aspects,
+            output_dir=Path(out_dir) if out_dir else None,
+            on_progress=_on_progress,
+            on_done=lambda err: state.finish_task(key, error=err),
+        )
         if 'export' in dot_refs: dot_refs['export'].set_content(_dot_html('running'))
         _watch_export()
 

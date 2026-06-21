@@ -1,6 +1,9 @@
+import threading
+
 import typer
 from rich.console import Console
 
+from avs.engine import pipeline as engine
 from avs.models.db import init_db
 
 app = typer.Typer(
@@ -70,7 +73,6 @@ def ingest(
 ) -> None:
     """Scan a folder or SD card and create a new session."""
     _startup()
-    from avs.processing.ingest import ingest_folder
     from pathlib import Path
 
     source = Path(path)
@@ -79,12 +81,20 @@ def ingest(
         raise typer.Exit(1)
 
     console.print(f"[bold]Scanning[/bold] {source} …")
-    session = ingest_folder(source, sport=sport)
+    session = engine.ingest_folder(source, sport=sport)
     console.print(f"[green]Session created:[/green] {session.id}")
     console.print(f"  Camera : {session.camera or 'unknown'}")
     console.print(f"  Clips  : {session.total_clips}")
     console.print(f"  Duration: {session.total_duration_s:.0f}s")
     console.print(f"\nNext step: [bold]avs analyze {session.id}[/bold]")
+
+
+def _wait(token, label: str) -> None:
+    """Block until token completes; exit on error."""
+    error = token.wait()
+    if error:
+        console.print(f"[red]{label} failed:[/red] {error}")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -95,11 +105,12 @@ def analyze(
 ) -> None:
     """Run the full analysis pipeline on an imported session."""
     _startup()
-    from avs.processing.analysis import analyze_session
-
-    motion_method = "jpg" if jpg else "proxy"
-    console.print(f"[bold]Analyzing session[/bold] {session_id} … (motion: {motion_method})")
-    analyze_session(session_id, motion_method=motion_method, on_event=_make_rich_handler(console))
+    method = "jpg" if jpg else "proxy"
+    on_prog = _make_rich_handler(console)
+    console.print(f"[bold]Analyzing session[/bold] {session_id} … (motion: {method})")
+    _wait(engine.run_proxy(session_id, on_progress=on_prog, on_done=None), "Proxy")
+    _wait(engine.run_scan(session_id, method, on_progress=on_prog, on_done=None), "Scan")
+    _wait(engine.run_peaks(session_id, method, on_progress=on_prog, on_done=None), "Peaks")
     console.print(f"\nNext step: [bold]avs review {session_id}[/bold]")
 
 
@@ -123,10 +134,13 @@ def assemble(
 ) -> None:
     """Assemble accepted marks into a preview video."""
     _startup()
-    from avs.processing.assembly import assemble_session
-
     console.print(f"[bold]Assembling session[/bold] {session_id} …")
-    assemble_session(session_id, console=console, source_filter=source)
+    _wait(
+        engine.run_assemble(session_id, grade=None, source_filter=source,
+                            remove_mark_ids=[], swap_music=False, disable_overlay=False,
+                            on_progress=None, on_done=None),
+        "Assemble",
+    )
     console.print(f"\nNext step: [bold]avs export {session_id}[/bold]")
 
 
@@ -141,17 +155,12 @@ def refine(
 ) -> None:
     """Re-assemble with adjustments (remove clips, swap music, change grade)."""
     _startup()
-    from avs.processing.assembly import assemble_session
-
     console.print(f"[bold]Refining session[/bold] {session_id} …")
-    assemble_session(
-        session_id,
-        console=console,
-        remove_mark_ids=remove,
-        swap_music=swap_music,
-        grade_override=grade,
-        disable_overlay=no_overlay,
-        source_filter=source,
+    _wait(
+        engine.run_assemble(session_id, grade=grade, source_filter=source,
+                            remove_mark_ids=list(remove), swap_music=swap_music,
+                            disable_overlay=no_overlay, on_progress=None, on_done=None),
+        "Refine",
     )
 
 
@@ -162,12 +171,12 @@ def export(
 ) -> None:
     """Export the approved preview to final output files."""
     _startup()
-    from avs.processing.export import export_session
-
     console.print(f"[bold]Exporting session[/bold] {session_id} …")
-    paths = export_session(session_id, aspects=aspect, console=console)
-    for p in paths:
-        console.print(f"[green]✓[/green] {p}")
+    _wait(
+        engine.run_export(session_id, aspects=list(aspect), output_dir=None,
+                          on_progress=None, on_done=None),
+        "Export",
+    )
 
 
 @app.command()
