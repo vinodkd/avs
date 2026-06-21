@@ -672,6 +672,7 @@ def session_page(session_id: str) -> None:
     hdr_elapsed_ref  = [None]
     hdr_time_ref     = [None]
     next_btn_ref     = [None]
+    cancel_btn_ref   = [None]
     next_action      = {'fn': None}
     menu_btn_ref     = [None]
     dot_refs:        dict[str, object] = {}
@@ -995,6 +996,17 @@ def session_page(session_id: str) -> None:
                         _eodir.on_value_change(lambda e: _export_outdir_val.__setitem__(0, e.value))
                         _export_ctl_refs.extend([_ea16, _ea9, _eodir])
 
+                    # Cancel button — visible only while a stage is running
+                    if not is_new:
+                        def _do_cancel():
+                            from avs.engine import pipeline as engine
+                            engine.cancel_current(session_id)
+                        _cbtn = ui.button('Cancel', on_click=_do_cancel).props(
+                            'color=negative flat size=sm'
+                        )
+                        _cbtn.set_visibility(False)
+                        cancel_btn_ref[0] = _cbtn
+
                     # Next-action button (rightmost — top right of the pane)
                     _nbtn = ui.button(
                         'Import & build working copy →' if is_new else '…',
@@ -1285,6 +1297,17 @@ def session_page(session_id: str) -> None:
     def _update_action_bar_for_stage(stage: str) -> None:
         if is_new: return
         _set_active_row(stage)
+        # Cancel button: visible whenever a background stage is actively running
+        _stage_running = (
+            (stage == 'proxy' and not all_proxies_done) or
+            (stage == 'scan' and (_scan_started[0] or scan_running)) or
+            (stage == 'highlights' and not post_analysis) or
+            (stage == 'combine' and combining_lock[0]) or
+            (stage == 'export' and (lambda t: t is not None and not t.done)(
+                state.get_task(f'export_{session_id}')))
+        )
+        if cancel_btn_ref[0]:
+            cancel_btn_ref[0].set_visibility(_stage_running)
         # Show/hide optional controls
         _method_sel_ref[0].set_visibility(
             stage == 'scan' and not (scan_running or _scan_started[0])
@@ -1517,10 +1540,17 @@ window.avsCardClick = function(mid, cid, ins) {{
 
         def _on_thumbnails_done(err):
             state.finish_task(f'{session_id}_thumbnails', error=err)
+            if cancel_btn_ref[0]:
+                cancel_btn_ref[0].set_visibility(False)
 
         def _on_peaks_done(err):
             state.finish_task(f'{session_id}_highlights', error=err)
-            if err: return
+            if err:
+                if err != 'cancelled':
+                    ui.notify(f'Peak detection failed: {err}', type='negative', timeout=0)
+                if cancel_btn_ref[0]:
+                    cancel_btn_ref[0].set_visibility(False)
+                return
             with db_session() as _db:
                 _s = _db.query(Session).filter(Session.id == session_id).first()
                 if _s: _s.status = SessionStatus.READY
@@ -1529,7 +1559,14 @@ window.avsCardClick = function(mid, cid, ins) {{
 
         def _on_scan_done(err):
             state.finish_task(f'{session_id}_scan', error=err)
-            if err: return
+            if err:
+                if err != 'cancelled':
+                    ui.notify(f'Scan failed: {err}', type='negative', timeout=0)
+                _scan_started[0] = False
+                if cancel_btn_ref[0]:
+                    cancel_btn_ref[0].set_visibility(False)
+                _update_action_bar_for_stage('scan')
+                return
             state.start_task(f'{session_id}_highlights')
             engine.run_peaks(session_id, method, on_progress=_on_progress, on_done=_on_peaks_done)
 

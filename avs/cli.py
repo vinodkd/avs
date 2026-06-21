@@ -1,3 +1,4 @@
+import signal
 import threading
 
 import typer
@@ -5,6 +6,17 @@ from rich.console import Console
 
 from avs.engine import pipeline as engine
 from avs.models.db import init_db
+
+_current_session_id: str | None = None
+
+
+def _sigint_handler(sig, frame):
+    if _current_session_id:
+        engine.cancel_current(_current_session_id)
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGINT, _sigint_handler)
 
 app = typer.Typer(
     name="avs",
@@ -105,12 +117,21 @@ def analyze(
 ) -> None:
     """Run the full analysis pipeline on an imported session."""
     _startup()
+    global _current_session_id
     method = "jpg" if jpg else "proxy"
     on_prog = _make_rich_handler(console)
     console.print(f"[bold]Analyzing session[/bold] {session_id} … (motion: {method})")
-    _wait(engine.run_proxy(session_id, on_progress=on_prog, on_done=None), "Proxy")
-    _wait(engine.run_scan(session_id, method, on_progress=on_prog, on_done=None), "Scan")
-    _wait(engine.run_peaks(session_id, method, on_progress=on_prog, on_done=None), "Peaks")
+    console.print("[dim]Ctrl-C to cancel[/dim]")
+    _current_session_id = session_id
+    try:
+        _wait(engine.run_proxy(session_id, on_progress=on_prog, on_done=None), "Proxy")
+        _wait(engine.run_scan(session_id, method, on_progress=on_prog, on_done=None), "Scan")
+        _wait(engine.run_peaks(session_id, method, on_progress=on_prog, on_done=None), "Peaks")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        raise typer.Exit(0)
+    finally:
+        _current_session_id = None
     console.print(f"\nNext step: [bold]avs review {session_id}[/bold]")
 
 

@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
-from avs.engine.cancel import CancelToken
+from avs.engine.cancel import CancelledError, CancelToken
 
 _active_tokens: dict[str, CancelToken] = {}
 _NOOP_P = lambda *_: None  # noqa: E731
@@ -27,6 +27,10 @@ def _run_in_thread(session_id: str, token: CancelToken, fn: Callable, on_done: C
             token._finish(None)
             if on_done:
                 on_done(None)
+        except CancelledError:
+            token._finish("cancelled")
+            if on_done:
+                on_done("cancelled")
         except Exception as exc:
             token._finish(str(exc))
             if on_done:
@@ -48,7 +52,7 @@ def run_proxy(session_id: str, on_progress: Callable | None, on_done: Callable) 
     token = CancelToken()
     def _fn():
         from avs.processing.analysis import build_proxy_only
-        build_proxy_only(session_id, on_event=on_progress or _NOOP_P)
+        build_proxy_only(session_id, on_event=on_progress or _NOOP_P, cancel_token=token)
     _run_in_thread(session_id, token, _fn, on_done)
     return token
 
@@ -67,8 +71,9 @@ def run_scan(
         from avs.processing.analysis import run_motion_scan
         from avs.processing.audio import run_audio_scan
         on_prog = on_progress or _NOOP_P
-        run_motion_scan(session_id, motion_method=method, on_event=on_prog)
-        run_audio_scan(session_id, on_event=on_prog)
+        run_motion_scan(session_id, motion_method=method, on_event=on_prog, cancel_token=token)
+        if not token.is_cancelled():
+            run_audio_scan(session_id, on_event=on_prog)
     _run_in_thread(session_id, token, _fn, on_done)
     return token
 

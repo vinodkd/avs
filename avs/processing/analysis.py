@@ -71,8 +71,9 @@ def build_proxies(session_id: str, on_event: OnEvent | None = None) -> None:
     _notify(None, 'session', 'done', "Proxies ready.", None, None)
 
 
-def build_proxy_only(session_id: str, on_event: OnEvent | None = None) -> None:
+def build_proxy_only(session_id: str, on_event: OnEvent | None = None, cancel_token=None) -> None:
     """Build 480p proxy for all clips. Does not extract thumbnails."""
+    from avs.engine.cancel import CancelledError
     _notify = on_event or _NOOP
     with get_session() as db:
         session = db.query(Session).filter(Session.id == session_id).first()
@@ -81,6 +82,8 @@ def build_proxy_only(session_id: str, on_event: OnEvent | None = None) -> None:
         clips = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
     _notify(None, 'session', 'running', f"Building proxy for {len(clips)} clip(s)", 0, len(clips))
     for i, clip in enumerate(clips):
+        if cancel_token and cancel_token.is_cancelled():
+            raise CancelledError()
         proxy_path = config.PROXY_DIR / f"{clip.id}.mp4"
         if proxy_path.exists() and _is_valid_video(proxy_path):
             _notify(clip.id, "proxy", "skipped", f"{clip.filename}: proxy exists", None, None)
@@ -90,7 +93,8 @@ def build_proxy_only(session_id: str, on_event: OnEvent | None = None) -> None:
             _notify(clip.id, "proxy", "running", f"{clip.filename}: generating proxy", None, 100)
             def _prog(done: int, total: int, _cid: str = clip.id) -> None:
                 _notify(_cid, "proxy", "progress", None, done, total)
-            _generate_proxy(Path(clip.filepath), proxy_path, duration_s=clip.duration_s, on_progress=_prog)
+            _generate_proxy(Path(clip.filepath), proxy_path, duration_s=clip.duration_s,
+                            on_progress=_prog, cancel_token=cancel_token)
             _notify(clip.id, "proxy", "done", None, None, None)
         _notify(None, 'session', 'progress', None, i + 1, len(clips))
     _notify(None, 'session', 'done', "Proxies ready.", None, None)
@@ -165,8 +169,10 @@ def run_motion_scan(
     session_id: str,
     motion_method: str = "proxy",
     on_event: OnEvent | None = None,
+    cancel_token=None,
 ) -> None:
     """Run scene detection + motion analysis. Does NOT run peak detection."""
+    from avs.engine.cancel import CancelledError
     _notify = on_event or _NOOP
     with get_session() as db:
         session = db.query(Session).filter(Session.id == session_id).first()
@@ -177,10 +183,14 @@ def run_motion_scan(
         session.status = SessionStatus.ANALYZING
     _notify(None, 'session', 'running', f"Scanning [{motion_method}]", 0, len(clips))
     for i, clip in enumerate(clips):
+        if cancel_token and cancel_token.is_cancelled():
+            raise CancelledError()
         proxy_path = config.PROXY_DIR / f"{clip.id}.mp4"
         _notify(clip.id, "scenes", "running", f"{clip.filename}: detecting scene cuts", None, None)
         scenes = _detect_scenes(proxy_path, profile)
         _notify(clip.id, "scenes", "done", f"{clip.filename}: {len(scenes)} scene(s)", None, None)
+        if cancel_token and cancel_token.is_cancelled():
+            raise CancelledError()
         if motion_method == "jpg":
             _notify(clip.id, "motion", "running", f"{clip.filename}: 1fps sample + optical flow", None, None)
             def _mjpg_extract(done: int, total: int, _cid: str = clip.id) -> None:
@@ -190,7 +200,8 @@ def run_motion_scan(
             motion_points = _compute_motion_jpeg(proxy_path,
                 on_progress=_mjpg_flow,
                 on_extract_progress=_mjpg_extract,
-                duration_s=clip.duration_s)
+                duration_s=clip.duration_s,
+                cancel_token=cancel_token)
             _notify(clip.id, "motion", "done", f"{clip.filename}: {len(motion_points)} samples", None, None)
             with get_session() as db:
                 db.query(TelemetryPoint).filter(
@@ -217,7 +228,7 @@ def run_motion_scan(
                 _notify(clip.id, "motion", "running", f"{clip.filename}: optical flow (all frames)", None, None)
                 def _mprx(done: int, total: int, _cid: str = clip.id) -> None:
                     _notify(_cid, "motion", "progress", "Comparing", done, total)
-                motion_points = _compute_motion(proxy_path, on_progress=_mprx)
+                motion_points = _compute_motion(proxy_path, on_progress=_mprx, cancel_token=cancel_token)
                 _notify(clip.id, "motion", "done", f"{clip.filename}: {len(motion_points)} samples", None, None)
                 peak_motion = max((m for _, m in motion_points), default=None)
                 with get_session() as db:
@@ -502,8 +513,10 @@ def _generate_proxy(
     dest: Path,
     duration_s: float = 0,
     on_progress: Callable[[int, int], None] | None = None,
+    cancel_token=None,
 ) -> None:
     """Transcode *source* to a 480p H.264 proxy at *dest*."""
+    from avs.engine.cancel import CancelledError
     dest.parent.mkdir(parents=True, exist_ok=True)
     timeout = max(600, int(duration_s * 4))
     cmd = [
@@ -520,10 +533,18 @@ def _generate_proxy(
     ]
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if cancel_token:
+        cancel_token.register_cleanup(process.terminate)
+
     deadline = time.time() + timeout
     timed_out = False
+    cancelled = False
     try:
         for line in process.stdout:
+            if cancel_token and cancel_token.is_cancelled():
+                cancelled = True
+                process.terminate()
+                break
             if time.time() > deadline:
                 timed_out = True
                 process.kill()
@@ -537,8 +558,12 @@ def _generate_proxy(
                     pass
         process.wait()
     finally:
-        pass
+        if cancel_token:
+            cancel_token.unregister_cleanup(process.terminate)
 
+    if cancelled:
+        dest.unlink(missing_ok=True)
+        raise CancelledError()
     if timed_out:
         dest.unlink(missing_ok=True)
         raise RuntimeError(f"Proxy generation timed out after {timeout}s for {source.name}")
@@ -605,8 +630,10 @@ def _extract_frame_at(proxy: Path, t: float, dest: Path) -> None:
 def _compute_motion(
     proxy_path: Path,
     on_progress: Callable[[int, int], None] | None = None,
+    cancel_token=None,
 ) -> list[tuple[float, float]]:
     """Dense optical flow (Farneback) on proxy. Returns (timestamp_s, intensity) pairs."""
+    from avs.engine.cancel import CancelledError
     cap = cv2.VideoCapture(str(proxy_path))
     if not cap.isOpened():
         raise RuntimeError(f"OpenCV could not open proxy: {proxy_path}")
@@ -621,6 +648,8 @@ def _compute_motion(
 
     try:
         while True:
+            if cancel_token and cancel_token.is_cancelled():
+                raise CancelledError()
             ret, frame = cap.read()
             if not ret:
                 break
@@ -652,6 +681,7 @@ def _compute_motion_jpeg(
     on_progress: Callable[[int, int], None] | None = None,
     on_extract_progress: Callable[[int, int], None] | None = None,
     duration_s: float = 0,
+    cancel_token=None,
 ) -> list[tuple[float, float]]:
     """1fps optical flow — ffmpeg extracts one frame/s, then Farneback runs on those frames."""
     sample_fps = 1.0 / config.OPTICAL_FLOW_SAMPLE_INTERVAL
@@ -672,10 +702,19 @@ def _compute_motion_jpeg(
             "-progress", "pipe:1", "-nostats",
             str(frame_dir / "%06d.jpg"),
         ]
+        from avs.engine.cancel import CancelledError
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if cancel_token:
+            cancel_token.register_cleanup(process.terminate)
+
         deadline = time.time() + extraction_timeout
         timed_out = False
+        cancelled = False
         for line in process.stdout:
+            if cancel_token and cancel_token.is_cancelled():
+                cancelled = True
+                process.terminate()
+                break
             if time.time() > deadline:
                 timed_out = True
                 process.kill()
@@ -688,6 +727,10 @@ def _compute_motion_jpeg(
                 except (ValueError, ZeroDivisionError):
                     pass
         process.wait()
+        if cancel_token:
+            cancel_token.unregister_cleanup(process.terminate)
+        if cancelled:
+            raise CancelledError()
         if timed_out or process.returncode != 0:
             raise RuntimeError("JPEG frame extraction failed")
 
@@ -697,6 +740,8 @@ def _compute_motion_jpeg(
         prev_gray: np.ndarray | None = None
 
         for i, frame_path in enumerate(frames):
+            if cancel_token and cancel_token.is_cancelled():
+                raise CancelledError()
             if frame_path.stat().st_size < 50:
                 continue
             gray = cv2.imread(str(frame_path), cv2.IMREAD_GRAYSCALE)
