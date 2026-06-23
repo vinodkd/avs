@@ -33,12 +33,13 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
   without pausing for input. Low priority until core pipeline is stable. Noted 2026-06-20.
 
 - [ ] **Target output duration** — user sets a desired total clip length (e.g. 3 min)
-  and the app works backwards to hit it: adjusts the motion sensitivity threshold and
-  dull-region aggressiveness until the selected clips sum to approximately that duration.
-  This inverts the current model (fixed thresholds → variable output length) into
-  (fixed output length → variable thresholds). Needs a binary search or gradient loop
-  over threshold values, re-running peak detection each iteration on the cached motion
-  data (cheap — no re-scan needed). Noted 2026-06-20.
+  and the app selects clips to fill it. With the scene-aware clip model
+  (`brainstorm/clip-selection-model.md`), this becomes a simple greedy fill: sort all
+  clips by score descending, include clips until cumulative duration meets the target.
+  No threshold iteration needed — dull clips are just low-scored clips at the tail of
+  the same ranking; the cutoff point on the sorted list is the only variable. If the
+  last clip overshoots, trim it or accept the nearest fit. Depends on the scene-aware
+  clip model being implemented first. Noted 2026-06-20.
 
 ---
 
@@ -68,6 +69,26 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
   should jump to that step and allow proceeding forward from there. Currently the UI only
   advances linearly; a `ready` session should allow jumping back to Scan results or Pick
   without re-running anything. Noted 2026-06-14.
+
+- [ ] **Peak and scene boundary overlay on the proxy player** — when reviewing a clip,
+  show the peak moment and scene boundaries as visual markers overlaid on the video
+  itself rather than only in the timeline. Preferred approach: a positioned `div` layered
+  over the `<video>` element (absolute positioning, pointer-events:none) that renders
+  a thin vertical line or flash at the peak frame and a distinct marker at each scene
+  boundary as playback passes through them, driven by `timeupdate` events. Scene
+  boundaries mark where PySceneDetect detected a significant visual change; the peak
+  marker shows the optical flow maximum that anchored the clip. Timeline markers are a
+  fallback if the overlay proves too complex. Noted 2026-06-20.
+
+- [ ] **Stop elapsed timer on export completion** — the stage elapsed timer keeps
+  running after export finishes. It should stop (freeze on final time) when the
+  stage reaches a terminal state. Noted 2026-06-21.
+
+- [ ] **UI reskin — periwinkle blue + logo redesign** — replace current colour scheme
+  with periwinkle blue as the primary brand colour throughout the NiceGUI UI and site.
+  Redesign the app logo/icon to use the up-arrow symbol with the aVs wordmark. Apply
+  consistently across: app header, buttons, timeline accent colour, site CSS.
+  Noted 2026-06-21 (discussed in a prior session, not previously captured in backlog).
 
 - [ ] **Option to hide dull cards in review** — dull sections render as cards like
   everything else; fine while sessions are short (the card area scrolls), but
@@ -108,6 +129,12 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
     button per stage (sends SIGTERM to the ffmpeg/OpenCV subprocess and marks
     the stage as interrupted); pause is a stretch goal (harder with ffmpeg, more
     useful for the OpenCV motion scan). Noted 2026-06-20.
+    **Partial progress (2026-06-23):** proxy and scan cancel correctly via
+    `CancelToken`. Combine (`assemble_session`) and export (`export_session`)
+    have a Cancel button visible but it does nothing — those processing functions
+    don't accept or check a `cancel_token` yet. Fix: thread the token through
+    `run_assemble`/`run_export` in `engine/pipeline.py` and add cancel checkpoints
+    between ffmpeg calls in `processing/assembly.py` and `processing/export.py`.
     Context: deleting a session mid-scan removes it from the DB and UI but the
     background thread keeps running (holding in-memory refs) until it finishes,
     then fails silently trying to write back to the deleted session. CPU burn
@@ -177,11 +204,21 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
 - [ ] Reliability and performance
   - [x] ~~Parallel segment encoding (4 workers)~~
   - [x] ~~Validate encoded segment cache before use (ffprobe check, delete corrupt files)~~
-  - [ ] **Clip boundary overlap causing glitch at cuts** — assembled output shows a
-    brief repeated-action glitch at segment boundaries, suggesting the cut points have
-    overlapping frames (start of next segment repeats the end of the previous one).
-    Check that segment start/end times are exclusive and that the ffmpeg concat filter
-    is not duplicating frames at boundaries. Noted 2026-06-20.
+  - [ ] **Clip boundary overlap / scene-aware clip model** — assembled output shows a
+    brief repeated-action glitch at cuts, caused by fixed pre/post windows around peaks
+    that can overlap when two peaks are close together. Root fix is a new clip model:
+
+    Current model: peak ± fixed pre/post → can overlap adjacent clips.
+    Proposed model (see `brainstorm/clip-selection-model.md`):
+    - PySceneDetect boundary = maximum extent a clip can reach (hard ceiling)
+    - Optical flow peak within the scene = anchor point
+    - Pre/post padding scales linearly with normalised peak score (high score → more
+      context; low score → tight window), clamped to the scene boundary
+    - Two clips in adjacent scenes can never overlap by construction
+
+    This also enables the target-duration feature: clips are variable-length but
+    non-overlapping, so greedy fill by descending score hits any target duration cleanly.
+    Noted 2026-06-20. Design detail in `brainstorm/clip-selection-model.md`.
 - [ ] Progress and estimates
   - [x] ~~Progress bar for segment encoding (N of M segments)~~ — combine bar in the UI
   - [ ] **Suppress terminal noise from combine stage; add on_event hook** —

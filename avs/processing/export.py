@@ -9,8 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from rich.console import Console
-
 from avs import config
 from avs.models.db import get_session
 from avs.models.schema import Export, Session, SessionStatus
@@ -37,15 +35,15 @@ _ENCODE_SETTINGS = {
 def export_session(
     session_id: str,
     aspects: list[str] | None = None,
-    console: Console | None = None,
     output_dir: Path | None = None,
     on_progress: Callable[[str, int], None] | None = None,
+    on_event: Callable[[str], None] | None = None,
 ) -> list[Path]:
     """
     Export the assembled preview for *session_id* in each requested aspect ratio.
     Returns a list of output file paths.
     """
-    _log = _logger(console)
+    _log = on_event or (lambda _: None)
     aspects = aspects or ["16:9"]
 
     with get_session() as db:
@@ -80,7 +78,7 @@ def export_session(
         _log(f"Exporting {aspect} → {dest.name} …")
         def _prog(pct: int, _asp: str = aspect) -> None:
             if on_progress: on_progress(_asp, pct)
-        _encode(preview_path, dest, settings, console, on_progress=_prog)
+        _encode(preview_path, dest, settings, on_progress=_prog)
 
         duration = _get_duration(dest)
 
@@ -95,12 +93,12 @@ def export_session(
             s.status = SessionStatus.EXPORTED
 
         output_paths.append(dest)
-        _log(f"  [green]✓[/green] {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
+        _log(f"  {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
 
     return output_paths
 
 
-def _encode(source: Path, dest: Path, settings: dict, console: Console | None = None,
+def _encode(source: Path, dest: Path, settings: dict,
             on_progress: Callable[[int], None] | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     duration = _get_duration(source) or 0
@@ -162,5 +160,3 @@ def _get_duration(path: Path) -> float | None:
     return None
 
 
-def _logger(console: Console | None):
-    return console.log if console else print

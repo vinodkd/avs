@@ -51,7 +51,9 @@ def new_session_controls(
             if result:
                 paths = [Path(r) for r in result]
                 files.clear(); files.extend(paths)
-                _pi.set_value(str(paths[0].parent))
+                # Single file → store the file path so source_path shows the filename.
+                # Multiple files → store the parent folder (ingest scans it).
+                _pi.set_value(str(paths[0]) if len(paths) == 1 else str(paths[0].parent))
                 if hint: hint.set_text(f'{len(paths)} file(s) selected')
             else:
                 try:

@@ -141,8 +141,21 @@ def review(
 ) -> None:
     """Open candidate clip review in the browser (static HTML)."""
     _startup()
-    from avs.processing.review import open_review
+    from avs.engine import sessions as eng_sessions
+    from avs.models.schema import SessionStatus
 
+    sess = eng_sessions.get_session(session_id)
+    if not sess:
+        console.print(f"[red]Session {session_id} not found.[/red]")
+        raise typer.Exit(1)
+    if sess.status not in (SessionStatus.READY, SessionStatus.ASSEMBLED, SessionStatus.EXPORTED):
+        console.print(
+            f"[yellow]Session is not ready for review "
+            f"(status: {sess.status}). Run 'analyze' first.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    from avs.processing.review import open_review
     console.print(f"[bold]Opening review for session[/bold] {session_id} …")
     open_review(session_id, console=console)
     console.print(f"\nNext step: [bold]avs assemble {session_id}[/bold]")
@@ -156,10 +169,11 @@ def assemble(
     """Assemble accepted marks into a preview video."""
     _startup()
     console.print(f"[bold]Assembling session[/bold] {session_id} …")
+    on_log = lambda msg: console.log(msg) if msg else None
     _wait(
         engine.run_assemble(session_id, grade=None, source_filter=source,
                             remove_mark_ids=[], swap_music=False, disable_overlay=False,
-                            on_progress=None, on_done=None),
+                            on_progress=None, on_done=None, on_event=on_log),
         "Assemble",
     )
     console.print(f"\nNext step: [bold]avs export {session_id}[/bold]")
@@ -177,10 +191,12 @@ def refine(
     """Re-assemble with adjustments (remove clips, swap music, change grade)."""
     _startup()
     console.print(f"[bold]Refining session[/bold] {session_id} …")
+    on_log = lambda msg: console.log(msg) if msg else None
     _wait(
         engine.run_assemble(session_id, grade=grade, source_filter=source,
                             remove_mark_ids=list(remove), swap_music=swap_music,
-                            disable_overlay=no_overlay, on_progress=None, on_done=None),
+                            disable_overlay=no_overlay, on_progress=None,
+                            on_done=None, on_event=on_log),
         "Refine",
     )
 
@@ -193,9 +209,10 @@ def export(
     """Export the approved preview to final output files."""
     _startup()
     console.print(f"[bold]Exporting session[/bold] {session_id} …")
+    on_log = lambda msg: console.log(msg) if msg else None
     _wait(
         engine.run_export(session_id, aspects=list(aspect), output_dir=None,
-                          on_progress=None, on_done=None),
+                          on_progress=None, on_done=None, on_event=on_log),
         "Export",
     )
 

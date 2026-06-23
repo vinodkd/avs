@@ -13,8 +13,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
-from rich.console import Console
-
 from avs import config
 from avs.models.db import get_session
 from avs.models.schema import Clip, Mark, MarkStatus, Profile, Session, SessionStatus
@@ -75,19 +73,19 @@ def render_grade_swatches(source_jpg: Path, dest_dir: Path, prefix: str) -> dict
 
 def assemble_session(
     session_id: str,
-    console: Console | None = None,
     remove_mark_ids: list[str] | None = None,
     swap_music: bool = False,
     grade_override: str | None = None,
     disable_overlay: bool = False,
     source_filter: str | None = None,
     on_progress: Callable[[int, int], None] | None = None,
+    on_event: Callable[[str], None] | None = None,
 ) -> Path:
     """
     Assemble accepted marks into a preview video.
     Returns the path to the preview file.
     """
-    _log = _logger(console)
+    _log = on_event or (lambda _: None)
     remove_mark_ids = set(remove_mark_ids or [])
 
     with get_session() as db:
@@ -304,7 +302,3 @@ def _open_player(path: Path) -> None:
         if shutil.which(player):
             sp.Popen([player, str(path)])
             return
-
-
-def _logger(console: Console | None):
-    return console.log if console else print

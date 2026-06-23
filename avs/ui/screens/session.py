@@ -24,11 +24,10 @@ Routes: /session/{session_id}  (existing session)
 """
 import inspect
 import json
-import shutil
 import time
 from pathlib import Path
 
-from nicegui import ui
+from nicegui import app, ui
 
 from avs import config
 from avs.models.db import get_session as db_session
@@ -38,6 +37,10 @@ from avs.models.schema import (
 from avs.prefs import get_prefs
 from avs.presets.sports import display_name
 from avs.ui import state
+from avs.ui.components.combine import CombinePanel
+from avs.ui.components.progress import bar_html as _bar_html, dot_html as _dot_html
+from avs.ui.components.scan_progress import ScanProgressStrip, PROXY_STAGES, SCAN_STAGES, STAGE_LABEL
+from avs.utils import fmt_duration as _fmt, fmt_timestamp as _tsfmt
 from avs.ui.state import StageState
 from avs.ui.layout import sidebar
 
@@ -51,10 +54,6 @@ def _sport_order(sports: list[str]) -> list[str]:
     """Motorcycle first (per user preference, it's the default), rest alphabetical."""
     return sorted(sports, key=lambda s: (s != 'moto', s))
 
-_PROXY_STAGES = ['proxy']
-_SCAN_STAGES  = ['scenes', 'motion', 'audio']
-_STAGE_LABEL  = {'proxy': 'Working copy', 'scenes': 'Scene cuts',
-                 'motion': 'Optical flow', 'audio': 'Audio energy'}
 _STAGE_BYLINE = {
     'proxy':  '480p transcode — originals are only read once',
     'scenes': 'Finds camera cuts and hard transitions',
@@ -96,8 +95,8 @@ _CSS = """
   display:flex;align-items:center;gap:0.45rem;flex-shrink:0;
   white-space:nowrap;overflow:hidden
 }
-.ax2-section.active{color:#fff;border-left:3px solid #ff8c00;padding-left:calc(0.7rem - 3px)}
-.ax2-section.done{color:#3aaa3a}
+.ax2-section.active{color:#fff;border-left:3px solid #7a8fd8;padding-left:calc(0.7rem - 3px)}
+.ax2-section.done{color:#7a8fd8}
 .ax2-section.future{color:#333;font-style:italic}
 
 /* Sub-rows (Create working copy, Detect scenes, etc.) */
@@ -111,8 +110,8 @@ _CSS = """
 }
 .ax2-sub:not(.pending){cursor:pointer}
 .ax2-sub:hover:not(.pending){background:#181818}
-.ax2-sub.active{background:#1a1a1a;color:#fff;border-left:3px solid #ff8c00;padding-left:calc(1.5rem - 3px)}
-.ax2-sub.done{color:#4a8a4a}
+.ax2-sub.active{background:#1a1a1a;color:#fff;border-left:3px solid #7a8fd8;padding-left:calc(1.5rem - 3px)}
+.ax2-sub.done{color:#7a8fd8}
 .ax2-sub.running{color:#e09030}
 .ax2-sub.pending{color:#3a3a3a}
 
@@ -122,8 +121,8 @@ _CSS = """
 .ax2-sub-count{text-align:right;font-size:0.68rem;color:#888;overflow:hidden;white-space:nowrap}
 .ax2-sub.active .ax2-sub-est{color:#888}
 .ax2-sub.active .ax2-sub-count{color:#ccc}
-.ax2-sub.done .ax2-sub-est{color:#3a6a3a}
-.ax2-sub.done .ax2-sub-act,.ax2-sub.done .ax2-sub-count{color:#3a6a3a}
+.ax2-sub.done .ax2-sub-est{color:#5a6fa8}
+.ax2-sub.done .ax2-sub-act,.ax2-sub.done .ax2-sub-count{color:#5a6fa8}
 
 /* Section est/act/count labels */
 .ax2-sec-est{width:44px;text-align:right;font-size:0.68rem;color:#555;flex-shrink:0}
@@ -195,79 +194,6 @@ def _media_url(path: Path) -> str:
         from nicegui import app as ng_app
         _media_urls[key] = ng_app.add_media_file(local_file=path)
     return _media_urls[key]
-
-
-# ── Formatting helpers ─────────────────────────────────────────────────────────
-
-def _fmt(secs: float) -> str:
-    m, s = divmod(int(secs), 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f'{h}h {m}m {s}s'
-    return f'{m}m {s}s' if m else f'{s}s'
-
-
-def _tsfmt(ts: float) -> str:
-    m, s = divmod(int(ts), 60)
-    return f'{m}:{s:02d}'
-
-
-def _dot_html(st: str) -> str:
-    if st == 'done':
-        c, cls = '#3aaa3a', ''
-    elif st == 'running':
-        c, cls = '#f0a040', 'class="tl-run"'
-    elif st == 'active':
-        c, cls = '#6a9aaa', ''
-    else:
-        return ('<span style="width:9px;height:9px;border-radius:50%;'
-                'background:#1c1c1c;border:1px solid #2a2a2a;display:inline-block"></span>')
-    return (f'<span {cls} style="width:9px;height:9px;border-radius:50%;'
-            f'background:{c};display:inline-block"></span>')
-
-
-def _bar_html(s: StageState, label: str, stage: str, method: str = 'proxy') -> str:
-    """PREVIEW overlay progress bar — [label 148px] [bar flex] [pct 24px]"""
-    if s.status in ('done', 'skipped'):
-        return (
-            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-            f'<span style="color:#3aaa3a;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
-            f'<div style="flex:1;height:7px;border-radius:4px;background:#1a3a1a;overflow:hidden">'
-            f'<div style="height:100%;width:100%;background:#3aaa3a;border-radius:4px"></div></div>'
-            f'<span style="color:#2a7a2a;font-size:0.7rem;width:24px;text-align:right">✓</span>'
-            f'</div>'
-        )
-    if s.status == 'running':
-        pct = (s.pct if s.pct is not None
-               else (int(s.completed / s.total * 100) if s.completed and s.total else 0))
-        sub = ''
-        if stage == 'motion' and s.completed and s.total:
-            phase = s.message or 'Comparing'
-            mode  = '1fps sample' if method == 'jpg' else 'all frames'
-            sub   = f'{phase} · {mode} · {s.completed:,}/{s.total:,}'
-        elif stage == 'proxy' and s.pct is not None:
-            sub = f'Transcoding {s.pct}%'
-        elif s.message:
-            sub = s.message
-        return (
-            f'<div style="margin-bottom:9px">'
-            f'<div style="display:flex;align-items:center;gap:10px">'
-            f'<span style="color:#f0a040;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
-            f'<div style="flex:1;height:7px;border-radius:4px;background:#1a1a1a;overflow:hidden">'
-            f'<div style="height:100%;width:{pct}%;background:#f0a040;border-radius:4px;transition:width 0.3s ease"></div></div>'
-            f'<span style="color:#a07030;font-size:0.7rem;width:24px;text-align:right">{pct}%</span>'
-            f'</div>'
-            + (f'<div style="padding-left:158px;margin-top:2px">'
-               f'<span style="color:#8a7a5a;font-size:0.68rem">{sub}</span></div>' if sub else '')
-            + '</div>'
-        )
-    return (
-        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">'
-        f'<span style="color:#484848;font-size:0.78rem;flex-shrink:0;width:148px">{label}</span>'
-        f'<div style="flex:1;height:7px;border-radius:4px;background:#161616;overflow:hidden"></div>'
-        f'<span style="color:#3e3e3e;font-size:0.7rem;width:24px;text-align:right">—</span>'
-        f'</div>'
-    )
 
 
 # Visuals per review state: (bar/border colour, hatch background-image, badge icon)
@@ -415,7 +341,7 @@ def _show_exports(session_id: str, container) -> None:
         for exp in exports:
             with ui.card().style('background:#1a1a1a;padding:0.4rem 0.6rem;margin-bottom:0.25rem'):
                 with ui.row().style('align-items:center;gap:0.75rem'):
-                    ui.badge(exp.aspect).style('background:#1a2a1a;color:#3aaa3a;font-size:0.7rem')
+                    ui.badge(exp.aspect).style('background:#1a1e3a;color:#7a8fd8;font-size:0.7rem')
                     ui.label(exp.filepath).style(
                         'color:#888;font-size:0.75rem;font-family:monospace;flex:1;word-break:break-all'
                     )
@@ -424,39 +350,21 @@ def _show_exports(session_id: str, container) -> None:
 # ── Delete helper ──────────────────────────────────────────────────────────────
 
 def _delete_session_button(session_id: str) -> None:
+    from avs.engine import sessions as eng_sessions
     dlg = ui.dialog()
     with dlg, ui.card().style('background:#1e1e1e;padding:1.25rem;min-width:300px'):
         ui.label('Delete this session?').style('color:#eee;font-weight:600;margin-bottom:0.4rem')
         ui.label('Removes all DB records and cached files.').style(
             'color:#777;font-size:0.78rem;margin-bottom:1rem'
         )
+        def _do_delete():
+            eng_sessions.delete_session(session_id)
+            dlg.close()
+            ui.navigate.to('/')
         with ui.row().style('gap:0.5rem;justify-content:flex-end'):
             ui.button('Cancel', on_click=dlg.close).props('flat')
-            ui.button('Delete', on_click=lambda: (_do_delete(session_id), dlg.close())).props('color=negative')
+            ui.button('Delete', on_click=_do_delete).props('color=negative')
     ui.button(icon='delete_outline', on_click=dlg.open).props('flat round dense').style('color:#5a3030').tooltip('Delete')
-
-
-def _do_delete(session_id: str) -> None:
-    with db_session() as db:
-        clips    = db.query(Clip).filter(Clip.session_id == session_id).all()
-        clip_ids = [c.id for c in clips]
-        mark_ids = [m.id for c in clips for m in db.query(Mark).filter(Mark.clip_id == c.id).all()]
-        s = db.query(Session).filter(Session.id == session_id).first()
-        if s: db.delete(s)
-    (config.PREVIEW_DIR / f'{session_id}_preview.mp4').unlink(missing_ok=True)
-    (config.STILL_DIR / f'{session_id}_still.jpg').unlink(missing_ok=True)
-    for sw in config.STILL_DIR.glob(f'{session_id}_grade_*.jpg'):
-        sw.unlink(missing_ok=True)
-    for cid in clip_ids:
-        (config.PROXY_DIR / f'{cid}.mp4').unlink(missing_ok=True)
-        shutil.rmtree(config.THUMB_DIR / cid, ignore_errors=True)
-        shutil.rmtree(config.JPEG_FRAMES_DIR / cid, ignore_errors=True)
-    for mid in mark_ids:
-        (config.SEGMENT_DIR / f'{mid}.mp4').unlink(missing_ok=True)
-        (config.SEGMENT_DIR / 'encoded' / f'{mid}.mp4').unlink(missing_ok=True)
-        for enc in (config.SEGMENT_DIR / 'encoded').glob(f'{mid}_*.mp4'):
-            enc.unlink(missing_ok=True)
-    ui.navigate.to('/')
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
@@ -475,6 +383,22 @@ def session_page(session_id: str) -> None:
         '</script>'
     )
 
+    try:
+        _session_page_body(session_id, _prefs)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        drawer = ui.left_drawer(value=True).style('background:#1a1a1a;border-right:1px solid #222')
+        drawer.props('breakpoint=0 width=180 mini-width=48')
+        with drawer:
+            sidebar('session', session_id)
+        with ui.column().style('padding:2rem;gap:1rem'):
+            ui.label('Something went wrong loading this session.').style('color:#e57373;font-size:1rem')
+            ui.label(str(exc)).style('color:#666;font-size:0.8rem;font-family:monospace')
+            ui.button('← Home', on_click=lambda: ui.navigate.to('/')).props('flat color=positive')
+
+
+def _session_page_body(session_id: str, _prefs: dict) -> None:
     is_new = (session_id == 'new')
 
     # ── DB load ────────────────────────────────────────────────────────────────
@@ -668,7 +592,6 @@ def session_page(session_id: str) -> None:
 
     # ── Mutable refs ──────────────────────────────────────────────────────────
     review_mode      = [False]
-    combining_lock   = [False]   # True while assemble is running → blocks re-entering review
     hdr_elapsed_ref  = [None]
     hdr_time_ref     = [None]
     next_btn_ref     = [None]
@@ -679,10 +602,11 @@ def session_page(session_id: str) -> None:
     act_refs:        dict[str, object] = {}   # stage_id → "actual time" cell
     count_refs:      dict[str, object] = {}
     player_tag_ref   = [None]
-    strip_ref        = [None]
-    task_bar_ref  = [None]
     row_refs:        dict[str, object] = {}   # stage_id → ui.element for class updates
-    bar_refs:        dict[str, dict]   = {}
+    scan_strip = (
+        ScanProgressStrip(session_id, clip_info, detect_method_ref)
+        if not is_new else None
+    )
     tl_html_ref      = [None]
     cards_html_ref   = [None]
     review_panel_ref = [None]
@@ -705,16 +629,17 @@ def session_page(session_id: str) -> None:
         else:
             fn()
 
-    # combine refs
-    _combine_grade_val  = [_prefs['default_grade']
-                           if _prefs['default_grade'] in _GRADES else 'natural']
-    _combine_source_val = ['All accepted']
-    _swatch_row_ref     = [None]
-    _swatch_built       = [False]
-    _swatch_cards:      dict[str, object] = {}
-    _swatch_paths:      dict[str, Path] = {}
-    grade_prev_ref      = [None]
-    _tag_before_preview = [None]
+    # combine panel (owns grade, swatch, preview, and combining-lock state)
+    _grade_key = f'grade_{session_id}'
+    _stored_grade = app.storage.user.get(_grade_key, _prefs['default_grade'])
+    _initial_grade = _stored_grade if _stored_grade in _GRADES else 'natural'
+    combine_panel = (
+        CombinePanel(
+            session_id, still_path, mark_data, clip_ids, _initial_grade,
+            on_grade_change=lambda g: app.storage.user.update({_grade_key: g}),
+        )
+        if not is_new else None
+    )
 
     # export refs
     _export_a16_val    = [bool(_prefs['export_16_9'])]
@@ -762,6 +687,7 @@ def session_page(session_id: str) -> None:
                 else:
                     ds = created.strftime('%Y-%m-%d %H:%M') if created else ''
                     _est = max(60, int(total_s)) + max(30, int(total_s // 3)) + 180
+                    src_name = Path(src).name if src else ''
                     with ui.row().style('gap:0.6rem;align-items:baseline'):
                         ui.label(f'{display_name(sport)}  ·  {ds}  ·  est ~{_fmt(_est)}').style(
                             'color:#ddd;font-size:0.85rem;font-weight:600'
@@ -771,9 +697,11 @@ def session_page(session_id: str) -> None:
                         ).style('color:#555').tooltip('What this sport profile does'):
                             with ui.menu().style('background:#1c1c1c;border:1px solid #333'):
                                 ui.html(_profile_info_html(sport), sanitize=False)
+                        if src_name:
+                            ui.label(src_name).style('color:#444;font-size:0.72rem;font-family:monospace')
                         _he = ui.label('').style('color:#5a8a9a;font-size:0.75rem')
                         hdr_elapsed_ref[0] = _he
-                    _ht = ui.label('').style('color:#4a9a4a;font-size:0.72rem;margin-left:0.25rem')
+                    _ht = ui.label('').style('color:#5a6fa8;font-size:0.72rem;margin-left:0.25rem')
                     hdr_time_ref[0] = _ht
 
             if is_new:
@@ -940,15 +868,8 @@ def session_page(session_id: str) -> None:
                         _method_sel.on_value_change(lambda e: detect_method_ref.__setitem__(0, e.value))
                         _method_sel_ref = [_method_sel]
 
-                        _grade_sel = ui.select(
-                            options=_GRADES, value=_combine_grade_val[0], label='Grade',
-                        ).style('min-width:110px').props('dense outlined')
-                        _grade_sel.on_value_change(
-                            lambda e: (_combine_grade_val.__setitem__(0, e.value),
-                                       _highlight_swatch(e.value),
-                                       _show_grade_preview(e.value))
-                        )
-                        _grade_sel_ref = [_grade_sel]
+                        if combine_panel:
+                            combine_panel.build_in_action_bar()
 
                         # Export controls — inline, shown only on the Export stage
                         _ea16 = ui.checkbox('16:9', value=_export_a16_val[0]).props('dense')
@@ -974,40 +895,13 @@ def session_page(session_id: str) -> None:
                         next_btn_ref[0]   = _bar['next_btn']
 
                 # ── Grade swatch strip — shown at the Combine stage, built lazily ─
-                if not is_new:
-                    _sw_row = ui.row().style(
-                        'flex-shrink:0;gap:0.55rem;padding:0.45rem 0.9rem;align-items:flex-start;'
-                        'background:#0f0f0f;border-bottom:1px solid #1a1a1a;flex-wrap:nowrap;'
-                        'overflow-x:auto'
-                    )
-                    _swatch_row_ref[0] = _sw_row
-                    _sw_row.set_visibility(False)
+                if combine_panel:
+                    combine_panel.build_swatch_row()
 
                 # ── Progress strip — above player. Per-clip proxy/scan bars at
                 #    page load; combine bar filled dynamically by its watcher. ──
-                if not is_new:
-                    _bg_running = proxy_running or scan_running or highlights_running
-                    _strip = ui.element('div').style(
-                        'flex-shrink:0;background:#0d0d0d;border-bottom:1px solid #1a1a1a;'
-                        'padding:0.6rem 1rem 0.2rem'
-                    )
-                    strip_ref[0] = _strip
-                    with _strip:
-                        if _bg_running:
-                            prog = state.get_clip_progress(session_id)
-                            for cid, fname, _ in clip_info:
-                                bar_refs.setdefault(cid, {})
-                                cp = prog.get(cid, {})
-                                stages = _PROXY_STAGES if proxy_running else _SCAN_STAGES
-                                for stage in stages:
-                                    s  = cp.get(stage, StageState())
-                                    el = ui.html(_bar_html(s, _STAGE_LABEL[stage], stage, detect_method_ref[0]),
-                                                 sanitize=False)
-                                    bar_refs[cid][stage] = el
-                        _cb = ui.html('', sanitize=False)
-                        task_bar_ref[0] = _cb
-                    if not _bg_running:
-                        _strip.set_visibility(False)
+                if scan_strip:
+                    scan_strip.build(proxy_running, scan_running, highlights_running)
 
                 # ── Player frame: label strip + video area ─────────────────────
                 with ui.element('div').classes('ax2-player-frame'):
@@ -1049,16 +943,9 @@ def session_page(session_id: str) -> None:
                                 sanitize=False,
                             )
 
-                        # Full-size grade preview overlay — shown when a swatch
-                        # is selected; click to return to the video
-                        if not is_new:
-                            _gp = ui.image('').props('fit=contain').style(
-                                'position:absolute;top:0;left:0;width:100%;height:100%;'
-                                'background:#000;z-index:6;cursor:pointer'
-                            ).tooltip('Click to return to the video')
-                            _gp.on('click', lambda: _hide_grade_preview())
-                            _gp.set_visibility(False)
-                            grade_prev_ref[0] = _gp
+                        # Full-size grade preview overlay — owned by CombinePanel
+                        if combine_panel:
+                            combine_panel.build_grade_preview(player_tag_ref)
 
                 # ── Review panel ───────────────────────────────────────────────
                 with ui.element('div').classes('ax2-review-panel') as _review_panel:
@@ -1140,85 +1027,6 @@ def session_page(session_id: str) -> None:
         if player_tag_ref[0]:
             player_tag_ref[0].set_text(text)
 
-    # ── Grade swatches ─────────────────────────────────────────────────────────
-
-    def _swatch_style(selected: bool) -> str:
-        bc = '#ff8c00' if selected else '#2a2a2a'
-        return (f'border:2px solid {bc};border-radius:4px;overflow:hidden;cursor:pointer;'
-                'flex-shrink:0;background:#161616;padding:0')
-
-    def _highlight_swatch(grade: str) -> None:
-        for g, card in _swatch_cards.items():
-            card.style(replace=_swatch_style(g == grade))
-
-    def _select_grade(grade: str) -> None:
-        # set_value triggers the select's on_value_change → updates val + highlight.
-        # Show the preview directly too: re-clicking the already-selected swatch
-        # fires no value-change event but should still bring the preview up.
-        _grade_sel_ref[0].set_value(grade)
-        _show_grade_preview(grade)
-
-    def _show_grade_preview(grade: str) -> None:
-        gp = grade_prev_ref[0]
-        p  = _swatch_paths.get(grade)
-        if gp is None or p is None: return
-        cur = player_tag_ref[0].text if player_tag_ref[0] else ''
-        if not cur.startswith('Grade preview'):
-            _tag_before_preview[0] = cur
-        gp.set_source(f'/stills/{p.name}')
-        gp.set_visibility(True)
-        _set_player_tag(f'Grade preview: {grade} — click image to return to the video')
-        ui.run_javascript('var v=document.getElementById("main-player"); if(v) v.pause();')
-
-    def _hide_grade_preview() -> None:
-        gp = grade_prev_ref[0]
-        if gp is None: return
-        gp.set_visibility(False)
-        if _tag_before_preview[0] is not None:
-            _set_player_tag(_tag_before_preview[0])
-
-    async def _ensure_swatches() -> None:
-        sw = _swatch_row_ref[0]
-        if sw is None: return
-        if _swatch_built[0]:
-            sw.set_visibility(True)
-            return
-        src = still_path if still_path.exists() else None
-        if src is None:
-            for mid, cid, *_ in mark_data:
-                p = config.THUMB_DIR / cid / f'mark_{mid}.jpg'
-                if p.exists():
-                    src = p
-                    break
-        if src is None:
-            return
-        from nicegui import run as ng_run
-        from avs.processing.assembly import render_grade_swatches
-        try:
-            paths = await ng_run.io_bound(render_grade_swatches, src, config.STILL_DIR, session_id)
-        except Exception as exc:
-            ui.notify(f'Grade preview failed: {exc}', type='warning')
-            return
-        _swatch_built[0] = True
-        _swatch_paths.update(paths)
-        with sw:
-            for g in _GRADES:
-                p = paths.get(g)
-                if not p or not p.exists():
-                    continue
-                card = ui.element('div').style(_swatch_style(g == _combine_grade_val[0]))
-                with card:
-                    ui.image(f'/stills/{p.name}').style(
-                        'width:104px;height:58px;display:block;object-fit:cover'
-                    )
-                    ui.label(g).style(
-                        'font-size:0.62rem;color:#999;text-align:center;width:100%;'
-                        'padding:1px 0 2px'
-                    )
-                card.on('click', lambda g=g: _select_grade(g))
-                _swatch_cards[g] = card
-        sw.set_visibility(True)
-
     def _set_active_row(stage_id: str) -> None:
         """Highlight one stage-table row as active, clear all others."""
         # Sub-row stages
@@ -1241,7 +1049,7 @@ def session_page(session_id: str) -> None:
             (stage == 'proxy' and not all_proxies_done) or
             (stage == 'scan' and (_scan_started[0] or scan_running)) or
             (stage == 'highlights' and not post_analysis) or
-            (stage == 'combine' and combining_lock[0]) or
+            (stage == 'combine' and combine_panel and combine_panel.is_combining) or
             (stage == 'export' and (lambda t: t is not None and not t.done)(
                 state.get_task(f'export_{session_id}')))
         )
@@ -1251,18 +1059,20 @@ def session_page(session_id: str) -> None:
         _method_sel_ref[0].set_visibility(
             stage == 'scan' and not (scan_running or _scan_started[0])
         )
-        _grade_sel_ref[0].set_visibility(stage == 'combine' and not combining_lock[0])
+        if combine_panel:
+            combine_panel.set_grade_selector_visible(
+                stage == 'combine' and not combine_panel.is_combining
+            )
         _etask = state.get_task(f'export_{session_id}')
         _exporting = _etask is not None and not _etask.done
         for _c in _export_ctl_refs:
             _c.set_visibility(stage == 'export' and not _exporting)
         # Grade swatch strip — visible at Combine; rendered lazily on first show
-        if _swatch_row_ref[0]:
-            if stage == 'combine' and not combining_lock[0]:
-                ui.timer(0.05, _ensure_swatches, once=True)
+        if combine_panel:
+            if stage == 'combine' and not combine_panel.is_combining:
+                combine_panel.show_swatches()
             else:
-                _swatch_row_ref[0].set_visibility(False)
-                _hide_grade_preview()
+                combine_panel.hide_swatches()
 
         if stage == 'input':
             _set_next_btn('Working copy ready →' if clip_ids else '(load footage first)', bool(clip_ids), None)
@@ -1296,7 +1106,8 @@ def session_page(session_id: str) -> None:
                                     + (f' · {n_skip2} skipped' if boring_ids else '')
                                     + (f' · {n_dull2} dull' if dull_ids else ''))
             else:
-                can_review = post_analysis and bool(mark_data) and not combining_lock[0]
+                _is_combining = combine_panel.is_combining if combine_panel else False
+                can_review = post_analysis and bool(mark_data) and not _is_combining
                 _set_next_btn('Review clips →', can_review, _enter_review)
                 _ab_status.set_text('')
         elif stage == 'combine':
@@ -1307,7 +1118,8 @@ def session_page(session_id: str) -> None:
                 _set_next_btn('Continue to export →', True, lambda: _update_action_bar_for_stage('export'))
             else:
                 _set_next_btn('Combine clips →', bool(mark_data), _run_combine)
-            _ab_status.set_text(f'Grade: {_combine_grade_val[0]}')
+            _grade_display = combine_panel.grade if combine_panel else 'natural'
+            _ab_status.set_text(f'Grade: {_grade_display}')
         elif stage == 'export':
             export_task = state.get_task(f'export_{session_id}')
             if export_task and not export_task.done:
@@ -1319,7 +1131,7 @@ def session_page(session_id: str) -> None:
     # ── REVIEW mode ────────────────────────────────────────────────────────────
 
     def _enter_review() -> None:
-        if combining_lock[0]:
+        if combine_panel and combine_panel.is_combining:
             ui.notify('Wait for combine to finish before reviewing again', type='warning')
             return
         review_mode[0] = True
@@ -1511,16 +1323,8 @@ window.avsCardClick = function(mid, cid, ins) {{
 
         engine.run_scan(session_id, method, on_progress=_on_progress, on_done=_on_scan_done)
         _scan_started[0] = True
-        # Create stage bars if the page loaded before the scan started (bar_refs empty)
-        if strip_ref[0] and not bar_refs:
-            with strip_ref[0]:
-                for cid, fname, _ in clip_info:
-                    bar_refs.setdefault(cid, {})
-                    for stage in _SCAN_STAGES:
-                        el = ui.html(_bar_html(StageState(), _STAGE_LABEL[stage], stage, method),
-                                     sanitize=False)
-                        bar_refs[cid][stage] = el
-            strip_ref[0].set_visibility(True)
+        if scan_strip:
+            scan_strip.ensure_bars_for_scan(method)
         if _timer_ref[0] is not None:
             _timer_ref[0].active = True
         _update_action_bar_for_stage('scan')
@@ -1549,73 +1353,20 @@ window.avsCardClick = function(mid, cid, ins) {{
         _exit_review()
         _update_action_bar_for_stage('combine')
 
-    def _run_combine() -> None:
-        _src_map = {'All accepted': None, 'Still-frame picks': 'jpg', 'Motion picks': 'proxy'}
-        grade   = _combine_grade_val[0]
-        src_val = _src_map.get(_combine_source_val[0])
-        combining_lock[0] = True
-        key = f'assemble_{session_id}'
-        state.start_task(key)
-
-        def _on_combine_progress(done: int, total: int) -> None:
-            # Shared state, not page refs — survives navigating away and back
-            state.update_task_progress(key,
-                                       pct=int(done / total * 100) if total else None,
-                                       message=f'{done} of {total} segments' if total else None)
-
-        from avs.engine import pipeline as engine
-        engine.run_assemble(
-            session_id,
-            grade=grade, source_filter=src_val,
-            remove_mark_ids=[], swap_music=False, disable_overlay=False,
-            on_progress=_on_combine_progress,
-            on_done=lambda err: state.finish_task(key, error=err),
+    def _combine_callbacks():
+        return dict(
+            on_hdr_time = lambda t: hdr_time_ref[0].set_text(t) if hdr_time_ref[0] else None,
+            on_task_bar = lambda h: scan_strip.set_task_bar(h) if scan_strip else None,
+            on_dot  = lambda st: dot_refs['combine'].set_content(_dot_html(st)) if 'combine' in dot_refs else None,
+            on_count= lambda tx: count_refs['combine'].set_text(tx) if 'combine' in count_refs else None,
+            on_act  = lambda s: _set_act('combine', s),
+            on_nav  = ui.navigate.to,
         )
 
+    def _run_combine() -> None:
+        if not combine_panel: return
         _update_action_bar_for_stage('combine')
-        if 'combine' in dot_refs: dot_refs['combine'].set_content(_dot_html('running'))
-        _watch_combine()
-
-    def _watch_combine() -> None:
-        """Poll the assemble task — called at start and re-attached on page load."""
-        key = f'assemble_{session_id}'
-
-        def _cpoll():
-            t = state.get_task(key)
-            if not t: return
-            elapsed_s = t.elapsed or 0.0
-            elapsed   = _fmt(elapsed_s)
-            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'combining: {elapsed}')
-            if t.error:
-                combining_lock[0] = False
-                ui.notify(f'Combine error: {t.error}', type='negative', timeout=0)
-                _set_next_btn('Combine clips →', True, _run_combine)
-                if 'combine' in count_refs: count_refs['combine'].set_text('error')
-                _set_act('combine', None)
-                if 'combine' in dot_refs:   dot_refs['combine'].set_content(_dot_html('pending'))
-                if task_bar_ref[0]: task_bar_ref[0].set_content('')
-                if strip_ref[0]: strip_ref[0].set_visibility(False)
-                _ct.active = False; return
-            if t.done:
-                combining_lock[0] = False
-                if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'combined: {elapsed}')
-                if 'combine' in dot_refs:  dot_refs['combine'].set_content(_dot_html('done'))
-                _set_act('combine', elapsed_s)
-                if 'combine' in count_refs: count_refs['combine'].set_text('done')
-                _ct.active = False
-                _update_action_bar_for_stage('combine')
-                ui.navigate.to(f'/session/{session_id}')
-            else:
-                pct_str = f'{t.pct}%' if t.pct is not None else '…'
-                if 'combine' in count_refs: count_refs['combine'].set_text(pct_str)
-                _set_act('combine', elapsed_s)
-                if task_bar_ref[0]:
-                    task_bar_ref[0].set_content(_bar_html(
-                        StageState(status='running', pct=t.pct, message=t.message),
-                        'Combining clips', 'combine',
-                    ))
-                if strip_ref[0]: strip_ref[0].set_visibility(True)
-        _ct = ui.timer(2.0, _cpoll)
+        combine_panel.run_combine(**_combine_callbacks())
 
     def _do_export_start() -> None:
         aspects = []
@@ -1659,8 +1410,7 @@ window.avsCardClick = function(mid, cid, ins) {{
                 if hdr_time_ref[0]: hdr_time_ref[0].set_text('')
                 if 'export' in dot_refs:  dot_refs['export'].set_content(_dot_html('active'))
                 _set_act('export', None)
-                if task_bar_ref[0]: task_bar_ref[0].set_content('')
-                if strip_ref[0]: strip_ref[0].set_visibility(False)
+                if scan_strip: scan_strip.set_task_bar('')
                 _update_action_bar_for_stage('export')
                 _et.active = False; return
             if t.done:
@@ -1677,12 +1427,11 @@ window.avsCardClick = function(mid, cid, ins) {{
                     hdr_time_ref[0].set_text(f'exporting {asp}: {pct}% · {elapsed}')
                 _set_act('export', elapsed_s)
                 if 'export' in count_refs: count_refs['export'].set_text(f'{pct}%')
-                if task_bar_ref[0]:
-                    task_bar_ref[0].set_content(_bar_html(
+                if scan_strip:
+                    scan_strip.set_task_bar(_bar_html(
                         StageState(status='running', pct=pct),
                         f'Exporting {asp}' if asp else 'Exporting', 'export',
                     ))
-                if strip_ref[0]: strip_ref[0].set_visibility(True)
         _et = ui.timer(1.0, _epoll)
 
     # ── Initial render ─────────────────────────────────────────────────────────
@@ -1699,15 +1448,14 @@ window.avsCardClick = function(mid, cid, ins) {{
         if hdr_elapsed_ref[0]:
             hdr_elapsed_ref[0].set_text(f'elapsed time: {_fmt(elapsed_s)}')
 
-    _elapsed_timer = ui.timer(1.0, _elapsed_tick, active=not is_new)
+    _elapsed_timer = ui.timer(1.0, _elapsed_tick, active=not is_new and status != SessionStatus.EXPORTED)
 
     # ── Re-attach watchers for combine/export still running from a previous
     #    page view (user navigated away and back) ──────────────────────────────
-    if not is_new:
+    if not is_new and combine_panel:
         _t_asm1 = state.get_task(f'assemble_{session_id}')
         if _t_asm1 and not _t_asm1.done:
-            combining_lock[0] = True
-            _watch_combine()
+            combine_panel.reattach_watcher(**_combine_callbacks())
         _t_exp1 = state.get_task(f'export_{session_id}')
         if _t_exp1 and not _t_exp1.done:
             _watch_export()
@@ -1802,17 +1550,9 @@ window.avsCardClick = function(mid, cid, ins) {{
                 ''')
 
         # Update overlay progress bars
-        step_stage_map = {'proxy': _PROXY_STAGES, 'scan': _SCAN_STAGES}
-        if initial_stage in step_stage_map:
-            stages = step_stage_map[initial_stage]
-            for cid, stage_map in bar_refs.items():
-                cp = prog.get(cid, {})
-                for stage, el in stage_map.items():
-                    if stage in stages:
-                        el.set_content(_bar_html(
-                            cp.get(stage, StageState()),
-                            _STAGE_LABEL[stage], stage, detect_method_ref[0],
-                        ))
+        if scan_strip and initial_stage in ('proxy', 'scan'):
+            stages = PROXY_STAGES if initial_stage == 'proxy' else SCAN_STAGES
+            scan_strip.update_bars(prog, stages)
 
         for t in (tp, ts, th, tleg):
             if t and t.error:

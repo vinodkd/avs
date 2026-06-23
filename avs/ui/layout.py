@@ -37,7 +37,19 @@ def sidebar(active: str, session_id: str | None = None, status: str | None = Non
             'padding:0.5rem 0; border-bottom:1px solid #2a2a2a; margin-bottom:0.25rem; cursor:default'
         ):
             with ui.item_section().props('avatar'):
-                ui.icon('videocam').style('color:#5a9a5a; font-size:1.3rem')
+                ui.html(
+                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" '
+                    'style="width:28px;height:28px;flex-shrink:0">'
+                    '<defs><clipPath id="lc"><circle cx="50" cy="50" r="49"/></clipPath></defs>'
+                    '<circle cx="50" cy="50" r="49" fill="#7a8fd8"/>'
+                    '<g clip-path="url(#lc)">'
+                    '<text x="13" y="66" font-family="Arial Black,Arial,sans-serif" '
+                    'font-weight="900" font-size="38" fill="#ffffff">aV</text>'
+                    '<polygon points="77,38 68,51 86,51" fill="#1a1e3a"/>'
+                    '<rect x="72" y="49" width="10" height="17" rx="1" fill="#1a1e3a"/>'
+                    '</g></svg>',
+                    sanitize=False,
+                )
             with ui.item_section():
                 ui.label('aVs').style('color:#eee; font-size:0.95rem; font-weight:700')
 
@@ -47,7 +59,7 @@ def sidebar(active: str, session_id: str | None = None, status: str | None = Non
             has_link  = item_id == 'session' and session_id
             clickable = url is not None and not is_active
 
-            color  = '#ffffff' if is_active else ('#5a9a5a' if has_link else ('#383838' if is_future else '#666'))
+            color  = '#ffffff' if is_active else ('#7a8fd8' if has_link else ('#383838' if is_future else '#666'))
             weight = '600' if is_active else '400'
 
             item_style = (

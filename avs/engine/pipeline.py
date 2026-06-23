@@ -158,6 +158,7 @@ def run_assemble(
     disable_overlay: bool,
     on_progress: Callable | None,
     on_done: Callable,
+    on_event: Callable | None = None,
 ) -> CancelToken:
     token = CancelToken()
     def _fn():
@@ -170,6 +171,7 @@ def run_assemble(
             swap_music=swap_music,
             disable_overlay=disable_overlay,
             on_progress=on_progress,
+            on_event=on_event,
         )
     _run_in_thread(session_id, token, _fn, on_done)
     return token
@@ -183,6 +185,7 @@ def run_export(
     output_dir: Path | None,
     on_progress: Callable | None,
     on_done: Callable,
+    on_event: Callable | None = None,
 ) -> CancelToken:
     token = CancelToken()
     def _fn():
@@ -192,6 +195,7 @@ def run_export(
             aspects=aspects,
             output_dir=output_dir,
             on_progress=on_progress,
+            on_event=on_event,
         )
     _run_in_thread(session_id, token, _fn, on_done)
     return token

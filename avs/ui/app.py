@@ -21,6 +21,9 @@ def start(port: int = 8765) -> None:
     # Import screens to register their @ui.page routes before ui.run()
     from avs.ui.screens import home, session, settings  # noqa: F401
 
+    from avs.ui.theme import apply_theme
+    app.on_connect(apply_theme)
+
     # When the native window closes, destroy pywebview windows (releases IPC semaphores)
     # then SIGTERM ourselves so uvicorn shuts down cleanly and the terminal is freed.
     def _shutdown() -> None:
@@ -42,4 +45,5 @@ def start(port: int = 8765) -> None:
         dark=True,
         show=False,   # native=True opens the window directly
         reload=False,
+        storage_secret='avs-desktop-local',
     )
