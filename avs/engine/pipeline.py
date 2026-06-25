@@ -172,6 +172,7 @@ def run_assemble(
             disable_overlay=disable_overlay,
             on_progress=on_progress,
             on_event=on_event,
+            cancel_token=token,
         )
     _run_in_thread(session_id, token, _fn, on_done)
     return token
@@ -196,6 +197,7 @@ def run_export(
             output_dir=output_dir,
             on_progress=on_progress,
             on_event=on_event,
+            cancel_token=token,
         )
     _run_in_thread(session_id, token, _fn, on_done)
     return token

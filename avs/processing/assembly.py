@@ -11,12 +11,15 @@ import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from avs import config
 from avs.models.db import get_session
 from avs.models.schema import Clip, Mark, MarkStatus, Profile, Session, SessionStatus
 from avs.presets.sports import DEFAULT_PROFILES
+
+if TYPE_CHECKING:
+    from avs.engine.cancel import CancelToken
 
 # FFmpeg eq/colorbalance filter string per grade style (None = no adjustment).
 # warm/cool shift midtones (rm/bm), not just shadows — action footage is mostly
@@ -80,6 +83,7 @@ def assemble_session(
     source_filter: str | None = None,
     on_progress: Callable[[int, int], None] | None = None,
     on_event: Callable[[str], None] | None = None,
+    cancel_token: 'CancelToken | None' = None,
 ) -> Path:
     """
     Assemble accepted marks into a preview video.
@@ -134,6 +138,10 @@ def assemble_session(
     # --- Stage 1: Cut each segment ---
     segment_paths: list[Path] = []
     for i, mark in enumerate(marks):
+        if cancel_token and cancel_token.is_cancelled():
+            _log("Assembly cancelled.")
+            from avs.engine.cancel import CancelledError
+            raise CancelledError()
         clip = clips[mark.clip_id]
         seg_path = config.SEGMENT_DIR / f"{mark.id}.mp4"
 
@@ -141,7 +149,7 @@ def assemble_session(
             _log(f"  segment {i+1}/{len(marks)} cached")
         else:
             _log(f"  cutting segment {i+1}/{len(marks)}: {mark.in_s:.1f}s – {mark.out_s:.1f}s")
-            _cut_segment(Path(clip.filepath), mark.in_s, mark.out_s, seg_path)
+            _cut_segment(Path(clip.filepath), mark.in_s, mark.out_s, seg_path, cancel_token=cancel_token)
 
         segment_paths.append(seg_path)
 
@@ -172,11 +180,15 @@ def assemble_session(
                 if on_progress: on_progress(done_count[0], total_segs)
             else:
                 enc.unlink(missing_ok=True)
-                futures[executor.submit(_encode_segment, seg, enc, grade, disable_overlay)] = enc
+                futures[executor.submit(_encode_segment, seg, enc, grade, disable_overlay, cancel_token)] = enc
         for future in as_completed(futures):
             future.result()
             done_count[0] += 1
             if on_progress: on_progress(done_count[0], total_segs)
+            if cancel_token and cancel_token.is_cancelled():
+                _log("Assembly cancelled.")
+                from avs.engine.cancel import CancelledError
+                raise CancelledError()
 
     # --- Stage 3: Fast concat of encoded segments ---
     preview_path = config.PREVIEW_DIR / f"{session_id}_preview.mp4"
@@ -197,7 +209,8 @@ def assemble_session(
 # FFmpeg operations
 # ---------------------------------------------------------------------------
 
-def _cut_segment(source: Path, in_s: float, out_s: float, dest: Path) -> None:
+def _cut_segment(source: Path, in_s: float, out_s: float, dest: Path,
+                 cancel_token=None) -> None:
     """Cut [in_s, out_s] from *source* using stream copy (fast, lossless)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -209,10 +222,11 @@ def _cut_segment(source: Path, in_s: float, out_s: float, dest: Path) -> None:
         "-avoid_negative_ts", "make_zero",
         str(dest),
     ]
-    _run(cmd, f"cutting segment from {source.name}")
+    _run(cmd, f"cutting segment from {source.name}", cancel_token=cancel_token)
 
 
-def _encode_segment(seg: Path, dest: Path, grade: str, disable_overlay: bool = False) -> None:
+def _encode_segment(seg: Path, dest: Path, grade: str, disable_overlay: bool = False,
+                    cancel_token=None) -> None:
     """Encode one segment with color grade applied."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     duration = _get_segment_duration(seg) or 0
@@ -227,7 +241,7 @@ def _encode_segment(seg: Path, dest: Path, grade: str, disable_overlay: bool = F
         "-c:a", "aac", "-b:a", "192k",
         str(dest),
     ]
-    _run(cmd, f"encoding {seg.name}", timeout=timeout)
+    _run(cmd, f"encoding {seg.name}", timeout=timeout, cancel_token=cancel_token)
 
 
 def _concat_copy(encoded: list[Path], dest: Path) -> None:
@@ -282,12 +296,27 @@ def _get_segment_duration(path: Path) -> float | None:
     return None
 
 
-def _run(cmd: list[str], description: str, timeout: int = 600) -> None:
-    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
-    if result.returncode != 0:
+def _run(cmd: list[str], description: str, timeout: int = 600,
+         cancel_token=None) -> None:
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if cancel_token:
+        cancel_token.register_cleanup(proc.terminate)
+    try:
+        _, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise RuntimeError(f"FFmpeg timed out after {timeout}s ({description})")
+    finally:
+        if cancel_token:
+            cancel_token.unregister_cleanup(proc.terminate)
+    if cancel_token and cancel_token.is_cancelled():
+        from avs.engine.cancel import CancelledError
+        raise CancelledError()
+    if proc.returncode not in (0, -15):  # -15 = SIGTERM from terminate()
         raise RuntimeError(
             f"FFmpeg failed ({description}):\n"
-            + result.stderr.decode(errors="replace")[-2000:]
+            + stderr.decode(errors="replace")[-2000:]
         )
 
 

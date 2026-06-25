@@ -689,7 +689,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                     _est = max(60, int(total_s)) + max(30, int(total_s // 3)) + 180
                     src_name = Path(src).name if src else ''
                     with ui.row().style('gap:0.6rem;align-items:baseline'):
-                        ui.label(f'{display_name(sport)}  ·  {ds}  ·  est ~{_fmt(_est)}').style(
+                        ui.label(display_name(sport)).style(
                             'color:#ddd;font-size:0.85rem;font-weight:600'
                         )
                         with ui.button(icon='info_outline').props(
@@ -697,6 +697,10 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                         ).style('color:#555').tooltip('What this sport profile does'):
                             with ui.menu().style('background:#1c1c1c;border:1px solid #333'):
                                 ui.html(_profile_info_html(sport), sanitize=False)
+                        if ds:
+                            ui.label(f'·  {ds}  ·  est ~{_fmt(_est)}').style(
+                                'color:#888;font-size:0.8rem'
+                            )
                         if src_name:
                             ui.label(src_name).style('color:#444;font-size:0.72rem;font-family:monospace')
                         _he = ui.label('').style('color:#5a8a9a;font-size:0.75rem')
@@ -1365,8 +1369,8 @@ window.avsCardClick = function(mid, cid, ins) {{
 
     def _run_combine() -> None:
         if not combine_panel: return
-        _update_action_bar_for_stage('combine')
-        combine_panel.run_combine(**_combine_callbacks())
+        combine_panel.run_combine(**_combine_callbacks())  # sets is_combining=True first
+        _update_action_bar_for_stage('combine')            # now sees is_combining=True
 
     def _do_export_start() -> None:
         aspects = []

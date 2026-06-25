@@ -7,11 +7,14 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from avs import config
 from avs.models.db import get_session
 from avs.models.schema import Export, Session, SessionStatus
+
+if TYPE_CHECKING:
+    from avs.engine.cancel import CancelToken
 
 # Target encode settings per aspect ratio
 _ENCODE_SETTINGS = {
@@ -38,6 +41,7 @@ def export_session(
     output_dir: Path | None = None,
     on_progress: Callable[[str, int], None] | None = None,
     on_event: Callable[[str], None] | None = None,
+    cancel_token: 'CancelToken | None' = None,
 ) -> list[Path]:
     """
     Export the assembled preview for *session_id* in each requested aspect ratio.
@@ -67,6 +71,9 @@ def export_session(
     output_paths: list[Path] = []
 
     for aspect in aspects:
+        if cancel_token and cancel_token.is_cancelled():
+            _log("Export cancelled.")
+            break
         if aspect not in _ENCODE_SETTINGS:
             _log(f"[yellow]Unknown aspect ratio '{aspect}', skipping.[/yellow]")
             continue
@@ -78,7 +85,7 @@ def export_session(
         _log(f"Exporting {aspect} → {dest.name} …")
         def _prog(pct: int, _asp: str = aspect) -> None:
             if on_progress: on_progress(_asp, pct)
-        _encode(preview_path, dest, settings, on_progress=_prog)
+        _encode(preview_path, dest, settings, on_progress=_prog, cancel_token=cancel_token)
 
         duration = _get_duration(dest)
 
@@ -99,7 +106,8 @@ def export_session(
 
 
 def _encode(source: Path, dest: Path, settings: dict,
-            on_progress: Callable[[int], None] | None = None) -> None:
+            on_progress: Callable[[int], None] | None = None,
+            cancel_token: 'CancelToken | None' = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     duration = _get_duration(source) or 0
     timeout = max(600, int(duration * 20))
@@ -119,10 +127,17 @@ def _encode(source: Path, dest: Path, settings: dict,
     ]
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if cancel_token:
+        cancel_token.register_cleanup(process.terminate)
     deadline = time.time() + timeout
     timed_out = False
+    cancelled = False
     try:
         for line in process.stdout:
+            if cancel_token and cancel_token.is_cancelled():
+                process.terminate()
+                cancelled = True
+                break
             if time.time() > deadline:
                 timed_out = True
                 process.kill()
@@ -136,8 +151,13 @@ def _encode(source: Path, dest: Path, settings: dict,
                     pass
         process.wait()
     finally:
-        pass
+        if cancel_token:
+            cancel_token.unregister_cleanup(process.terminate)
 
+    if cancelled:
+        dest.unlink(missing_ok=True)
+        from avs.engine.cancel import CancelledError
+        raise CancelledError()
     if timed_out:
         dest.unlink(missing_ok=True)
         raise RuntimeError(f"Export timed out after {timeout}s for {dest.name}")
