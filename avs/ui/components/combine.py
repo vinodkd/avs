@@ -128,6 +128,7 @@ class CombinePanel:
         on_count:       Callable[[str], None],
         on_act:         Callable[[float | None], None],
         on_nav:         Callable[[str], None],
+        on_act_done:    Callable[[float], None] | None = None,
     ) -> None:
         """Start assembly and attach the progress watcher."""
         self._combining = True
@@ -153,7 +154,7 @@ class CombinePanel:
             on_done=lambda err: state.finish_task(key, error=err),
         )
         on_dot('running')
-        self._watch(on_hdr_time, on_task_bar, on_dot, on_count, on_act, on_nav)
+        self._watch(on_hdr_time, on_task_bar, on_dot, on_count, on_act, on_nav, on_act_done)
 
     def reattach_watcher(
         self,
@@ -163,12 +164,13 @@ class CombinePanel:
         on_count:    Callable[[str], None],
         on_act:      Callable[[float | None], None],
         on_nav:      Callable[[str], None],
+        on_act_done: Callable[[float], None] | None = None,
     ) -> None:
         """Re-attach after a page reload if combine is still in progress."""
         t = state.get_task(f'assemble_{self.session_id}')
         if t and not t.done:
             self._combining = True
-            self._watch(on_hdr_time, on_task_bar, on_dot, on_count, on_act, on_nav)
+            self._watch(on_hdr_time, on_task_bar, on_dot, on_count, on_act, on_nav, on_act_done)
 
     # ── Internal ───────────────────────────────────────────────────────────────
 
@@ -180,6 +182,7 @@ class CombinePanel:
         on_count:    Callable[[str], None],
         on_act:      Callable[[float | None], None],
         on_nav:      Callable[[str], None],
+        on_act_done: Callable[[float], None] | None = None,
     ) -> None:
         key = f'assemble_{self.session_id}'
 
@@ -205,7 +208,7 @@ class CombinePanel:
                 self._combining = False
                 on_hdr_time(f'combined: {elapsed}')
                 on_dot('done')
-                on_act(elapsed_s)
+                (on_act_done or on_act)(elapsed_s)
                 on_count('done')
                 _ct.active = False
                 on_nav(f'/session/{self.session_id}')

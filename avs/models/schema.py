@@ -43,6 +43,11 @@ class Session(Base):
     camera: Mapped[str | None]   = mapped_column(String, nullable=True)
     total_clips: Mapped[int | None]      = mapped_column(Integer, nullable=True)
     total_duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    proxy_s:      Mapped[float | None]   = mapped_column(Float, nullable=True)
+    scan_s:       Mapped[float | None]   = mapped_column(Float, nullable=True)
+    highlights_s: Mapped[float | None]   = mapped_column(Float, nullable=True)
+    combine_s:    Mapped[float | None]   = mapped_column(Float, nullable=True)
+    export_s:     Mapped[float | None]   = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String, default=SessionStatus.IMPORTING)
 
     clips: Mapped[list["Clip"]]     = relationship(back_populates="session", cascade="all, delete-orphan")

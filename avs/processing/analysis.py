@@ -615,7 +615,7 @@ def _detect_scenes(proxy_path: Path, profile: Profile | None = None) -> list[tup
 
         scene_manager.detect_scenes(video, show_progress=False)
         scenes = scene_manager.get_scene_list()
-        return [(s.get_seconds(), e.get_seconds()) for s, e in scenes]
+        return [(s.seconds, e.seconds) for s, e in scenes]
     except Exception:
         return []
 

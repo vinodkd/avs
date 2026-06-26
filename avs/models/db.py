@@ -61,6 +61,14 @@ def _migrate(engine) -> None:
         )
         conn.commit()
 
+        # M002: add per-stage actual processing time columns
+        for col in ('proxy_s', 'scan_s', 'highlights_s', 'combine_s', 'export_s'):
+            try:
+                conn.execute(text(f"ALTER TABLE sessions ADD COLUMN {col} REAL"))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
+
 
 def get_engine() -> Engine:
     if _engine is None:

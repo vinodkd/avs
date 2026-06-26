@@ -224,14 +224,9 @@ def sessions(
     """List all sessions."""
     _startup()
     from rich.table import Table
-    from avs.models.db import get_session as db_session
-    from avs.models.schema import Session as SessionModel
+    from avs.engine import sessions as eng_sessions
 
-    with db_session() as s:
-        q = s.query(SessionModel)
-        if status:
-            q = q.filter(SessionModel.status == status)
-        rows = q.order_by(SessionModel.created_at.desc()).all()
+    rows = eng_sessions.list_sessions(status=status)
 
     table = Table(title="Sessions")
     table.add_column("ID", style="dim")

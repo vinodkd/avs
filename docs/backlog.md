@@ -65,6 +65,11 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
   neither surface shows it, making it ambiguous which file is being processed when
   multiple sessions exist. Noted 2026-06-14.
 
+- [ ] **Home page: exported output duration column** — for sessions with `exported` status,
+  show the final output duration alongside the source duration in the session list.
+  `Export.duration_s` is already stored; just needs a column in the home page table
+  and a matching header label. Noted 2026-06-26.
+
 - [ ] **Step navigation from left nav** — clicking a completed step header in the left nav
   should jump to that step and allow proceeding forward from there. Currently the UI only
   advances linearly; a `ready` session should allow jumping back to Scan results or Pick
@@ -129,18 +134,16 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
     button per stage (sends SIGTERM to the ffmpeg/OpenCV subprocess and marks
     the stage as interrupted); pause is a stretch goal (harder with ffmpeg, more
     useful for the OpenCV motion scan). Noted 2026-06-20.
-    **Partial progress (2026-06-23):** proxy and scan cancel correctly via
-    `CancelToken`. Combine (`assemble_session`) and export (`export_session`)
-    have a Cancel button visible but it does nothing — those processing functions
-    don't accept or check a `cancel_token` yet. Fix: thread the token through
-    `run_assemble`/`run_export` in `engine/pipeline.py` and add cancel checkpoints
-    between ffmpeg calls in `processing/assembly.py` and `processing/export.py`.
-    Context: deleting a session mid-scan removes it from the DB and UI but the
-    background thread keeps running (holding in-memory refs) until it finishes,
-    then fails silently trying to write back to the deleted session. CPU burn
-    continues until the scan completes; only way to stop it sooner is killing
-    the whole app. A cancel button needs to actually terminate the subprocess,
-    not just remove the DB row.
+    **Done (2026-06-24):** all four stages cancel correctly. Proxy and scan
+    via `CancelToken` with `register_cleanup(process.terminate)` in the FFmpeg
+    subprocess helpers. Combine and export now also thread `cancel_token` through
+    `assemble_session` / `export_session` — `_run()` in assembly and `_encode()`
+    in export use `register_cleanup` so the FFmpeg process is killed immediately
+    on cancel, not just between iterations. Combine cancel button visibility
+    also fixed (order-of-call bug). Context: deleting a session mid-scan removes
+    it from the DB and UI but the background thread keeps running (holding
+    in-memory refs) until it finishes, then fails silently trying to write back
+    to the deleted session — cancel is the clean alternative.
   - [ ] **UI instability during assembly — thread-unsafe progress updates** —
     with 4 parallel encoding workers all firing `on_progress` callbacks
     simultaneously, NiceGUI receives rapid-fire concurrent UI mutations from

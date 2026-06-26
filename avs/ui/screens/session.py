@@ -351,20 +351,19 @@ def _show_exports(session_id: str, container) -> None:
 
 def _delete_session_button(session_id: str) -> None:
     from avs.engine import sessions as eng_sessions
-    dlg = ui.dialog()
-    with dlg, ui.card().style('background:#1e1e1e;padding:1.25rem;min-width:300px'):
-        ui.label('Delete this session?').style('color:#eee;font-weight:600;margin-bottom:0.4rem')
-        ui.label('Removes all DB records and cached files.').style(
-            'color:#777;font-size:0.78rem;margin-bottom:1rem'
-        )
-        def _do_delete():
-            eng_sessions.delete_session(session_id)
-            dlg.close()
-            ui.navigate.to('/')
-        with ui.row().style('gap:0.5rem;justify-content:flex-end'):
-            ui.button('Cancel', on_click=dlg.close).props('flat')
-            ui.button('Delete', on_click=_do_delete).props('color=negative')
-    ui.button(icon='delete_outline', on_click=dlg.open).props('flat round dense').style('color:#5a3030').tooltip('Delete')
+    from avs.ui.components.confirm_dialog import confirm_dialog
+
+    def _do_delete():
+        eng_sessions.delete_session(session_id)
+        ui.navigate.to('/')
+
+    open_dlg = confirm_dialog(
+        'Delete this session?',
+        'Removes all DB records and cached files.',
+        _do_delete,
+        confirm_label='Delete',
+    )
+    ui.button(icon='delete_outline', on_click=open_dlg).props('flat round dense').style('color:#5a3030').tooltip('Delete')
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
@@ -406,6 +405,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         status = sport = src = created = None
         clip_ids = clip_info = mark_data = []
         total_s = 0.0
+        _saved_actuals = {'proxy': 0.0, 'scan': 0.0, 'highlights': 0.0, 'combine': 0.0, 'export': 0.0}
         rejected_ids: set = set()
         boring_ids: set = set()
         dull_ids: set = set()
@@ -422,10 +422,17 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
             if not session:
                 ui.label('Session not found.').style('color:#e57373;padding:2rem')
                 return
-            status   = session.status
-            sport    = session.sport or 'unknown'
-            src      = session.source_path or ''
-            created  = session.created_at
+            status       = session.status
+            sport        = session.sport or 'unknown'
+            src          = session.source_path or ''
+            created      = session.created_at
+            _saved_actuals = {
+                'proxy':      session.proxy_s or 0.0,
+                'scan':       session.scan_s or 0.0,
+                'highlights': session.highlights_s or 0.0,
+                'combine':    session.combine_s or 0.0,
+                'export':     session.export_s or 0.0,
+            }
             clips    = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
             clip_ids = [c.id for c in clips]
             clip_info = [(c.id, c.filename, c.duration_s) for c in clips]
@@ -592,8 +599,9 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
 
     # ── Mutable refs ──────────────────────────────────────────────────────────
     review_mode      = [False]
-    hdr_elapsed_ref  = [None]
-    hdr_time_ref     = [None]
+
+    hdr_actual_ref   = [None]   # running sum of completed stage actual times
+    hdr_elapsed_ref  = [None]   # wall-clock elapsed, frozen at export done
     next_btn_ref     = [None]
     cancel_btn_ref   = [None]
     next_action      = {'fn': None}
@@ -603,6 +611,8 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
     count_refs:      dict[str, object] = {}
     player_tag_ref   = [None]
     row_refs:        dict[str, object] = {}   # stage_id → ui.element for class updates
+    # Seed from DB so in-progress stages add on top of previously completed ones
+    _stage_actuals:  dict[str, float]  = {k: v for k, v in _saved_actuals.items() if v}
     scan_strip = (
         ScanProgressStrip(session_id, clip_info, detect_method_ref)
         if not is_new else None
@@ -685,28 +695,42 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                 if is_new:
                     ui.label('New session').style('color:#ddd;font-size:0.88rem;font-weight:600')
                 else:
-                    ds = created.strftime('%Y-%m-%d %H:%M') if created else ''
+                    # est = proxy + scan + peaks/combine/export overhead
                     _est = max(60, int(total_s)) + max(30, int(total_s // 3)) + 180
                     src_name = Path(src).name if src else ''
-                    with ui.row().style('gap:0.6rem;align-items:baseline'):
-                        ui.label(display_name(sport)).style(
-                            'color:#ddd;font-size:0.85rem;font-weight:600'
-                        )
+                    with ui.row().style('gap:0.5rem;align-items:center'):
+                        if src_name:
+                            ui.label(src_name).style(
+                                'color:#ddd;font-size:0.88rem;font-weight:600;font-family:monospace'
+                            )
+                        ui.label(display_name(sport)).style('color:#777;font-size:0.8rem')
                         with ui.button(icon='info_outline').props(
                             'flat round dense size=xs'
                         ).style('color:#555').tooltip('What this sport profile does'):
                             with ui.menu().style('background:#1c1c1c;border:1px solid #333'):
                                 ui.html(_profile_info_html(sport), sanitize=False)
-                        if ds:
-                            ui.label(f'·  {ds}  ·  est ~{_fmt(_est)}').style(
-                                'color:#888;font-size:0.8rem'
-                            )
-                        if src_name:
-                            ui.label(src_name).style('color:#444;font-size:0.72rem;font-family:monospace')
-                        _he = ui.label('').style('color:#5a8a9a;font-size:0.75rem')
+                        _sep = 'color:#333;font-size:0.75rem;margin:0 0.25rem'
+                        ui.label('·').style(_sep)
+                        ui.label(f'est ~{_fmt(_est)}' if total_s else '').style(
+                            'color:#555;font-size:0.75rem'
+                        )
+                        ui.label('·').style(_sep)
+                        _saved_total = sum(_saved_actuals.values())
+                        _actual_init = f'actual {_fmt(_saved_total)}' if _saved_total else ''
+                        _ha = ui.label(_actual_init).style('color:#5a6fa8;font-size:0.75rem')
+                        hdr_actual_ref[0] = _ha
+                        ui.label('·').style(_sep)
+                        # Elapsed: for exported sessions derive from Export.exported_at
+                        if status == SessionStatus.EXPORTED and not is_new:
+                            try:
+                                _exp_elapsed = (_last_exp.exported_at - created).total_seconds()
+                                _elapsed_init = f'elapsed {_fmt(int(_exp_elapsed))}'
+                            except Exception:
+                                _elapsed_init = ''
+                        else:
+                            _elapsed_init = ''
+                        _he = ui.label(_elapsed_init).style('color:#4a7a6a;font-size:0.75rem')
                         hdr_elapsed_ref[0] = _he
-                    _ht = ui.label('').style('color:#5a6fa8;font-size:0.72rem;margin-left:0.25rem')
-                    hdr_time_ref[0] = _ht
 
             if is_new:
                 ui.button('← Home', on_click=lambda: ui.navigate.to('/')).props('flat size=sm').style('color:#777')
@@ -782,7 +806,10 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
 
                 def _init_act(stage: str) -> str:
                     t = state.get_task(_TASK_KEYS[stage]) if not is_new else None
-                    return _fmt(t.elapsed) if t and t.elapsed is not None else ''
+                    if t and t.elapsed is not None:
+                        return _fmt(t.elapsed)
+                    v = _saved_actuals.get(stage, 0.0)
+                    return _fmt(v) if v else ''
 
                 _n_prox_done = sum(
                     1 for cid in clip_ids if (config.PROXY_DIR / f'{cid}.mp4').exists()
@@ -920,7 +947,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
 
                         elif init_src:
                             ui.html(
-                                f'<video id="main-player" src="{init_src}" controls preload="metadata"'
+                                f'<video id="main-player" src="{init_src}" controls controlsList="nofullscreen" preload="metadata"'
                                 ' style="position:absolute;top:0;left:0;width:100%;height:100%;'
                                 'object-fit:contain;display:block;background:#000"></video>',
                                 sanitize=False,
@@ -929,7 +956,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                             ui.html(
                                 f'<img id="player-still" src="/stills/{session_id}_still.jpg"'
                                 ' style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;">'
-                                '<video id="main-player" src="" controls preload="none"'
+                                '<video id="main-player" src="" controls controlsList="nofullscreen" preload="none"'
                                 ' style="position:absolute;top:0;left:0;width:100%;height:100%;'
                                 'object-fit:contain;display:none;background:#000"></video>',
                                 sanitize=False,
@@ -941,7 +968,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                                 'gap:0.5rem;background:#000">'
                                 '<span style="color:#3e3e3e;font-size:2.5rem">▷</span>'
                                 '<span style="color:#484848;font-size:0.82rem">Building working copy…</span></div>'
-                                '<video id="main-player" src="" controls preload="none"'
+                                '<video id="main-player" src="" controls controlsList="nofullscreen" preload="none"'
                                 ' style="position:absolute;top:0;left:0;width:100%;height:100%;'
                                 'object-fit:contain;display:none;background:#000"></video>',
                                 sanitize=False,
@@ -1021,11 +1048,24 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         b.props(f'color={"positive" if enabled else "grey-7"}')
         next_action['fn'] = fn
 
-    def _set_act(stage: str, actual_s: float | None) -> None:
-        """Update a stage's Act cell; Est cells are static."""
+    def _set_act(stage: str, actual_s: float | None, persist: bool = False) -> None:
+        """Update a stage's Act cell and the header actual total.
+
+        persist=True: stage has finalized — write the delta to the DB.
+        """
         lbl = act_refs.get(stage)
-        if not lbl: return
-        lbl.set_text(_fmt(actual_s) if actual_s is not None else '')
+        if lbl:
+            lbl.set_text(_fmt(actual_s) if actual_s is not None else '')
+        if actual_s is not None:
+            _stage_actuals[stage] = actual_s
+            if persist:
+                from avs.engine import sessions as eng_sessions
+                eng_sessions.set_stage_time(session_id, stage, actual_s)
+        elif stage in _stage_actuals:
+            del _stage_actuals[stage]
+        total_actual = sum(_stage_actuals.values())
+        if hdr_actual_ref[0]:
+            hdr_actual_ref[0].set_text(f'actual {_fmt(total_actual)}' if total_actual else '')
 
     def _set_player_tag(text: str) -> None:
         if player_tag_ref[0]:
@@ -1306,9 +1346,8 @@ window.avsCardClick = function(mid, cid, ins) {{
                 if cancel_btn_ref[0]:
                     cancel_btn_ref[0].set_visibility(False)
                 return
-            with db_session() as _db:
-                _s = _db.query(Session).filter(Session.id == session_id).first()
-                if _s: _s.status = SessionStatus.READY
+            from avs.engine import sessions as eng_sessions
+            eng_sessions.set_session_status(session_id, SessionStatus.READY)
             state.start_task(f'{session_id}_thumbnails')
             engine.run_thumbnails(session_id, on_progress=_on_progress, on_done=_on_thumbnails_done)
 
@@ -1359,11 +1398,12 @@ window.avsCardClick = function(mid, cid, ins) {{
 
     def _combine_callbacks():
         return dict(
-            on_hdr_time = lambda t: hdr_time_ref[0].set_text(t) if hdr_time_ref[0] else None,
+            on_hdr_time = lambda _: None,
             on_task_bar = lambda h: scan_strip.set_task_bar(h) if scan_strip else None,
             on_dot  = lambda st: dot_refs['combine'].set_content(_dot_html(st)) if 'combine' in dot_refs else None,
             on_count= lambda tx: count_refs['combine'].set_text(tx) if 'combine' in count_refs else None,
             on_act  = lambda s: _set_act('combine', s),
+            on_act_done = lambda s: _set_act('combine', s, persist=True),
             on_nav  = ui.navigate.to,
         )
 
@@ -1411,24 +1451,20 @@ window.avsCardClick = function(mid, cid, ins) {{
             asp = t.message or ''
             if t.error:
                 ui.notify(f'Export error: {t.error}', type='negative', timeout=0)
-                if hdr_time_ref[0]: hdr_time_ref[0].set_text('')
                 if 'export' in dot_refs:  dot_refs['export'].set_content(_dot_html('active'))
                 _set_act('export', None)
                 if scan_strip: scan_strip.set_task_bar('')
                 _update_action_bar_for_stage('export')
                 _et.active = False; return
             if t.done:
-                if hdr_time_ref[0]:  hdr_time_ref[0].set_text(f'exported: {elapsed}')
                 if 'export' in dot_refs:  dot_refs['export'].set_content(_dot_html('done'))
-                _set_act('export', elapsed_s)
+                _set_act('export', elapsed_s, persist=True)
                 if 'export' in count_refs: count_refs['export'].set_text('done')
                 _elapsed_timer.active = False
                 _et.active = False
                 # Reload so the exported video is mounted in the player
                 ui.navigate.to(f'/session/{session_id}')
             else:
-                if hdr_time_ref[0]:
-                    hdr_time_ref[0].set_text(f'exporting {asp}: {pct}% · {elapsed}')
                 _set_act('export', elapsed_s)
                 if 'export' in count_refs: count_refs['export'].set_text(f'{pct}%')
                 if scan_strip:
@@ -1438,21 +1474,23 @@ window.avsCardClick = function(mid, cid, ins) {{
                     ))
         _et = ui.timer(1.0, _epoll)
 
+    # ── Elapsed wall-clock timer — runs from session creation, frozen at export ──
+    def _elapsed_tick() -> None:
+        import datetime
+        if not created or not hdr_elapsed_ref[0]: return
+        elapsed_s = max(0, int((datetime.datetime.utcnow() - created).total_seconds()))
+        hdr_elapsed_ref[0].set_text(f'elapsed {_fmt(elapsed_s)}')
+
+    _elapsed_timer = ui.timer(
+        1.0, _elapsed_tick,
+        active=not is_new and status != SessionStatus.EXPORTED,
+    )
+
     # ── Initial render ─────────────────────────────────────────────────────────
     if not is_new:
         _update_action_bar_for_stage(initial_stage)
         if post_analysis and mark_data and tl_html_ref[0]:
             tl_html_ref[0].set_content(_timeline_html(mark_data, clip_info, _statuses))
-
-    # ── Elapsed timer ──────────────────────────────────────────────────────────
-    def _elapsed_tick() -> None:
-        import datetime
-        if not created: return
-        elapsed_s = max(0, int((datetime.datetime.utcnow() - created).total_seconds()))
-        if hdr_elapsed_ref[0]:
-            hdr_elapsed_ref[0].set_text(f'elapsed time: {_fmt(elapsed_s)}')
-
-    _elapsed_timer = ui.timer(1.0, _elapsed_tick, active=not is_new and status != SessionStatus.EXPORTED)
 
     # ── Re-attach watchers for combine/export still running from a previous
     #    page view (user navigated away and back) ──────────────────────────────
@@ -1497,7 +1535,6 @@ window.avsCardClick = function(mid, cid, ins) {{
         if _p_active:
             el_s = _t_elapsed(tp or tleg)
             est  = _fmt(max(60, int(total_s)))
-            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'working copy: {_fmt(el_s)} / ~{est}')
             if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('running'))
             _set_act('proxy', el_s)
             if 'proxy' in count_refs and clip_ids:
@@ -1505,28 +1542,26 @@ window.avsCardClick = function(mid, cid, ins) {{
         elif _s_active:
             el_s = _t_elapsed(ts)
             est  = _fmt(max(30, int(total_s // 3)))
-            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'scanning: {_fmt(el_s)} / ~{est}')
             if 'scan' in dot_refs:  dot_refs['scan'].set_content(_dot_html('running'))
             _set_act('scan', el_s)
             if 'scan' in count_refs and clip_ids:
                 count_refs['scan'].set_text(f'{_n_stage_done("motion")}/{len(clip_ids)}')
         elif _h_active:
             el_s = _t_elapsed(th)
-            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'finding clips: {_fmt(el_s)}')
             if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('running'))
             _set_act('highlights', el_s)
 
         if tp and tp.done:
             if 'proxy' in dot_refs: dot_refs['proxy'].set_content(_dot_html('done'))
-            _set_act('proxy', tp.elapsed)
+            _set_act('proxy', tp.elapsed, persist=True)
             if 'proxy' in count_refs and clip_ids: count_refs['proxy'].set_text(str(len(clip_ids)))
         if ts and ts.done:
             if 'scan' in dot_refs: dot_refs['scan'].set_content(_dot_html('done'))
-            _set_act('scan', ts.elapsed)
+            _set_act('scan', ts.elapsed, persist=True)
             if 'scan' in count_refs and clip_ids: count_refs['scan'].set_text(str(len(clip_ids)))
         if th and th.done:
             if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('done'))
-            _set_act('highlights', th.elapsed)
+            _set_act('highlights', th.elapsed, persist=True)
             n_marks = 0
             with db_session() as _db2:
                 if clip_ids:
@@ -1565,7 +1600,6 @@ window.avsCardClick = function(mid, cid, ins) {{
 
         if not still_running:
             _timer.active = False
-            if hdr_time_ref[0]: hdr_time_ref[0].set_text(f'took {elapsed}')
             ui.navigate.to(f'/session/{session_id}')
 
     _timer = ui.timer(0.5, _poll, active=_any_bg)

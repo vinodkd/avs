@@ -28,6 +28,31 @@ def get_session(session_id: str) -> SessionModel | None:
         return row
 
 
+def set_session_status(session_id: str, status) -> None:
+    """Write Session.status — the one place the engine advances session state."""
+    with _db() as db:
+        s = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+        if s:
+            s.status = status
+
+
+_STAGE_COL = {
+    'proxy': 'proxy_s', 'scan': 'scan_s', 'highlights': 'highlights_s',
+    'combine': 'combine_s', 'export': 'export_s',
+}
+
+
+def set_stage_time(session_id: str, stage: str, actual_s: float) -> None:
+    """Store the actual processing time for a completed stage."""
+    col = _STAGE_COL.get(stage)
+    if not col:
+        return
+    with _db() as db:
+        s = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+        if s:
+            setattr(s, col, actual_s)
+
+
 def delete_session(session_id: str) -> None:
     """Remove all DB rows and cached files for a session."""
     with _db() as db:
