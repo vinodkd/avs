@@ -44,6 +44,14 @@ def count_actionable_marks(session_id: str) -> int:
         )
 
 
+def get_audio_spikes(clip_ids: list[str]) -> dict[str, list[float]]:
+    """Return {clip_id: [spike_timestamps_s]} using the app's audio_spike_k setting."""
+    from avs.prefs import get_prefs
+    from avs.processing.audio import clip_audio_spikes
+    spike_k = float(get_prefs().get('audio_spike_k', 3.0))
+    return {cid: clip_audio_spikes(cid, spike_k) for cid in clip_ids}
+
+
 def set_mark_statuses(decisions: dict[str, str]) -> int:
     """Write a batch of mark status decisions. decisions = {mark_id: ui_status_str}.
 

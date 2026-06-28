@@ -4,12 +4,11 @@ from nicegui import ui
 
 from avs.engine import sessions as eng_sessions
 from avs.ui.components.session_card import session_row
-from avs.ui.layout import sidebar
+from avs.ui.layout import page_shell
 
 
 @ui.page('/')
 def home_page() -> None:
-    ui.dark_mode().enable()
     # Block the webview's default file-drop behavior — without this, dropping a
     # video onto the window navigates away from the app to fullscreen playback.
     ui.add_head_html(
@@ -27,14 +26,9 @@ def home_page() -> None:
             type='info', timeout=0, close_button=True,
         )
 
-    drawer = ui.left_drawer(value=True).style('background: #1a1a1a; border-right: 1px solid #222')
-    drawer.props('breakpoint=0 width=180 mini-width=48')
-    with drawer:
-        sidebar('home')
-
-    with ui.column().style('padding: 2rem; width: 100%; min-height: 100vh; background: #111'):
-        with ui.row().style('align-items: center; justify-content: space-between; margin-bottom: 1.5rem; width: 100%'):
-            ui.label('Sessions').style('color: #eee; font-size: 1.4rem; font-weight: 700')
+    with page_shell('home'):
+        with ui.row().style('align-items:center;justify-content:space-between;margin-bottom:1.5rem;width:100%'):
+            ui.label('Sessions').style('color:#eee;font-size:1.4rem;font-weight:700')
             ui.button('New edit session →', on_click=lambda: ui.navigate.to('/session/new')).props('color=positive flat')
 
         sessions = eng_sessions.list_sessions()
@@ -44,7 +38,7 @@ def home_page() -> None:
                 'flex:1;align-items:center;justify-content:center;'
                 'padding:4rem 2rem;gap:0.75rem;text-align:center'
             ):
-                ui.label('No sessions yet.').style('color: #333; font-size: 1rem')
+                ui.label('No sessions yet.').style('color:#333;font-size:1rem')
                 ui.button(
                     'New edit session →',
                     on_click=lambda: ui.navigate.to('/session/new'),

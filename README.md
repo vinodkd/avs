@@ -57,6 +57,53 @@ Download `aVs-<version>.dmg` from [Releases](https://github.com/vinodkd/avs/rele
 
 ---
 
+## CLI usage
+
+For power users who prefer the terminal. The review step requires the NiceGUI UI
+(launch with `avs ui`); all other steps work entirely from the command line.
+
+```bash
+# 1. Import footage from an SD card or folder
+avs ingest /media/SDCARD/DCIM --sport mtb
+# → prints session ID, clip count, duration, camera brand
+
+# 2. Analyze (proxy build → scene detection → motion peaks)
+avs analyze <session_id>          # full (default)
+avs analyze <session_id> --jpg    # ~15× faster, less precise
+# → rich progress bars; Ctrl-C cancels cleanly
+
+# 3. Review clips (launches UI; use avs ui first if not running)
+avs review <session_id>
+# → prints the URL for the session in the NiceGUI UI
+avs ui                            # start the UI server (port 8765 by default)
+
+# 4. Assemble a preview from accepted clips
+avs assemble <session_id>
+avs assemble <session_id> --source jpg    # only quick-scan marks
+avs assemble <session_id> --source proxy  # only full-scan marks
+
+# 5. Refine and re-assemble
+avs refine <session_id> --grade cinematic
+avs refine <session_id> --swap-music
+avs refine <session_id> --remove <mark_id>
+avs refine <session_id> --no-overlay
+
+# 6. Export to final files
+avs export <session_id>                              # 16:9 only (default)
+avs export <session_id> --aspect 16:9 --aspect 9:16 # both orientations
+
+# Session management
+avs sessions                   # list all sessions
+avs sessions --status ready    # filter by status
+
+# Sport profiles
+avs profile mtb                              # show active settings
+avs profile mtb --grade cinematic            # change default grade
+avs profile surf --music-energy chill        # change music energy
+```
+
+---
+
 ## Build from source
 
 **Requirements:** Python 3.10+, FFmpeg (system install or via `imageio-ffmpeg`), GTK3 + WebKit2GTK (Linux only)

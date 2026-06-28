@@ -15,7 +15,7 @@ from avs.models.schema import Profile
 from avs.prefs import get_prefs, save_prefs
 from avs.presets.sports import DEFAULT_PROFILES, display_name
 from avs.processing.assembly import GRADE_FILTERS
-from avs.ui.layout import sidebar
+from avs.ui.layout import page_shell
 
 _GRADES   = list(GRADE_FILTERS.keys())
 _METHODS  = {'jpg': 'Quick (1fps sample)', 'proxy': 'Full (all frames)'}
@@ -46,19 +46,11 @@ def _profile_values(sport: str) -> tuple[dict, bool]:
 
 @ui.page('/settings')
 def settings_page() -> None:
-    ui.dark_mode().enable()
-
-    drawer = ui.left_drawer(value=True).style('background:#1a1a1a;border-right:1px solid #222')
-    drawer.props('breakpoint=0 width=180 mini-width=48')
-    with drawer:
-        sidebar('settings')
-
     sports = sorted(DEFAULT_PROFILES.keys(), key=lambda s: (s != 'moto', s))
     sport_opts = {s: display_name(s) for s in sports}
     prefs = get_prefs()
 
-    with ui.column().style('padding:1.5rem 2rem;width:100%;min-height:100vh;'
-                           'background:#111;align-items:center;gap:1rem'):
+    with page_shell('settings', content_style='align-items:center;gap:1rem'):
         ui.label('Settings').style('color:#eee;font-size:1.4rem;font-weight:700;'
                                    'width:100%;max-width:680px')
 

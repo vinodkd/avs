@@ -1,9 +1,10 @@
-"""Engine-level session management: list, get, delete.
+"""Engine-level session management: list, get, delete, path helpers.
 
 All DB access and file cleanup goes through here so both the CLI and the UI
 call the same code path — no duplicate _do_delete() in screens.
 """
 import shutil
+from pathlib import Path
 
 from avs import config
 from avs.models.db import get_session as _db
@@ -76,6 +77,73 @@ def get_last_export(session_id: str):
         if row:
             db.expunge(row)
         return row
+
+
+def get_session_clips(session_id: str) -> list[tuple[str, str, float]]:
+    """Return [(clip_id, filename, duration_s)] in clip_order."""
+    with _db() as db:
+        clips = (db.query(Clip)
+                 .filter(Clip.session_id == session_id)
+                 .order_by(Clip.clip_order)
+                 .all())
+        return [(c.id, c.filename, c.duration_s) for c in clips]
+
+
+def has_motion_data(clip_ids: list[str]) -> bool:
+    """True if any motion telemetry exists for these clips."""
+    if not clip_ids:
+        return False
+    from avs.models.schema import TelemetryPoint
+    with _db() as db:
+        return (db.query(TelemetryPoint)
+                .filter(TelemetryPoint.clip_id.in_(clip_ids))
+                .filter(
+                    (TelemetryPoint.motion_intensity.isnot(None)) |
+                    (TelemetryPoint.motion_intensity_quick.isnot(None))
+                ).count() > 0)
+
+
+def list_sports() -> list[str]:
+    """Return all sport names from profiles, alphabetically."""
+    from avs.models.schema import Profile
+    with _db() as db:
+        return [p.sport for p in db.query(Profile).order_by(Profile.sport).all()]
+
+
+def get_profile_info(sport: str) -> dict | None:
+    """Return profile fields relevant for display, or None if no custom profile exists."""
+    from avs.models.schema import Profile
+    with _db() as db:
+        p = db.query(Profile).filter(Profile.sport == sport).first()
+        if not p:
+            return None
+        return {
+            'color_grade':         p.color_grade,
+            'motion_threshold':    p.motion_threshold,
+            'scene_detector':      p.scene_detector,
+            'scene_threshold':     p.scene_threshold,
+            'scene_min_scene_len': p.scene_min_scene_len,
+        }
+
+
+def proxy_path(clip_id: str) -> Path:
+    return config.PROXY_DIR / f'{clip_id}.mp4'
+
+
+def preview_path(session_id: str) -> Path:
+    return config.PREVIEW_DIR / f'{session_id}_preview.mp4'
+
+
+def still_path(session_id: str) -> Path:
+    return config.STILL_DIR / f'{session_id}_still.jpg'
+
+
+def count_proxies_done(clip_ids: list[str]) -> int:
+    return sum(1 for cid in clip_ids if proxy_path(cid).exists())
+
+
+def default_output_dir() -> Path:
+    return config.OUTPUT_DIR
 
 
 def delete_session(session_id: str) -> None:

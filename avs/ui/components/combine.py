@@ -14,9 +14,10 @@ from avs import config
 from avs.ui import state
 from avs.ui.components.progress import bar_html, dot_html
 from avs.ui.state import StageState
+from avs.processing.assembly import GRADE_FILTERS as _GRADE_FILTERS
 from avs.utils import fmt_duration as _fmt
 
-_GRADES     = ['punchy', 'cinematic', 'natural', 'warm', 'cool', 'vibrant']
+_GRADES = list(_GRADE_FILTERS.keys())
 _SOURCE_MAP = {'All accepted': None, 'Still-frame picks': 'jpg', 'Motion picks': 'proxy'}
 _SWATCH_SELECTED = '#7a8fd8'
 _SWATCH_DEFAULT  = '#2a2a2a'

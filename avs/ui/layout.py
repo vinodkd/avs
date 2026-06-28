@@ -1,8 +1,10 @@
-"""Shared sidebar navigation — three top-level items.
+"""Shared page shell and sidebar navigation.
 
 Uses proper Quasar QItem/QItemSection structure so QDrawer's built-in mini mode
 hides text labels and keeps only the icon strip visible.
 """
+from contextlib import contextmanager
+
 from nicegui import ui
 
 
@@ -86,3 +88,21 @@ def sidebar(active: str, session_id: str | None = None, status: str | None = Non
                             ui.badge('soon').props('outline').style(
                                 'font-size:0.58rem; color:#383838; border-color:#383838'
                             )
+
+
+@contextmanager
+def page_shell(
+    active: str,
+    session_id: str | None = None,
+    status: str | None = None,
+    content_style: str = '',
+):
+    """Set up dark mode + sidebar drawer. Yields the main content column."""
+    ui.dark_mode().enable()
+    drawer = ui.left_drawer(value=True).style('background:#1a1a1a;border-right:1px solid #222')
+    drawer.props('breakpoint=0 width=180 mini-width=48')
+    with drawer:
+        sidebar(active, session_id, status)
+    base = 'padding:2rem;width:100%;min-height:100vh;background:#111'
+    with ui.column().style(f'{base};{content_style}' if content_style else base) as col:
+        yield col

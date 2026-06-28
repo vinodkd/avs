@@ -136,12 +136,11 @@ def test_review_blocks_when_not_ready(status):
     SessionStatus.ASSEMBLED,
     SessionStatus.EXPORTED,
 ])
-def test_review_opens_browser_when_ready(status):
+def test_review_directs_to_ui(status):
     sess = _make_session(status=status)
-    with patch('avs.processing.review.open_review') as mock_open:
-        result = runner.invoke(app, ['review', sess.id])
+    result = runner.invoke(app, ['review', sess.id])
     assert result.exit_code == 0
-    mock_open.assert_called_once_with(sess.id, console=ANY)
+    assert 'ui' in result.output.lower() or 'localhost' in result.output.lower()
 
 
 # ── List commands: DB state surfaces correctly ─────────────────────────────────
@@ -215,6 +214,66 @@ def test_export_passes_on_event_to_engine():
         runner.invoke(app, ['export', sess.id])
     _, kwargs = mock_run.call_args
     assert callable(kwargs.get('on_event')), 'on_event must be a callable, not None'
+
+
+# ── End-to-end: CLI workflow sequence ────────────────────────────────────────
+
+def test_cli_workflow_sequence():
+    """The full ingest → analyze → review → assemble → export sequence.
+
+    Each command's 'Next step' hint matches the next command; status gates
+    enforce the correct order; the engine is mocked so this runs fast.
+    """
+    # ── ingest ──────────────────────────────────────────────────────────────
+    fake_session = _make_session(status=SessionStatus.INGESTED)
+    fake_session.camera = 'GoPro'
+    fake_session.total_clips = 3
+    fake_session.total_duration_s = 180.0
+
+    with patch('avs.engine.pipeline.ingest_folder', return_value=fake_session):
+        result = runner.invoke(app, ['ingest', '/tmp', '--sport', 'mtb'])
+    assert result.exit_code == 0, result.output
+    assert fake_session.id in result.output
+    assert f'avs analyze {fake_session.id}' in result.output   # next-step hint
+
+    session_id = fake_session.id
+
+    # ── analyze gates: blocked before ingested ───────────────────────────────
+    # (analyze actually calls engine; we just check review blocks before it finishes)
+    not_ready = _make_session(status=SessionStatus.INGESTED)
+    result = runner.invoke(app, ['review', not_ready.id])
+    assert result.exit_code == 1
+    assert 'not ready' in result.output.lower() or 'analyze' in result.output.lower()
+
+    # ── analyze → review hint ────────────────────────────────────────────────
+    ready_sess = _make_session(status=SessionStatus.READY)
+    sid = ready_sess.id
+
+    def _instant_token(*args, **kwargs):
+        t = MagicMock(); t.wait.return_value = None; return t
+
+    with patch('avs.engine.pipeline.run_proxy', side_effect=_instant_token), \
+         patch('avs.engine.pipeline.run_scan',  side_effect=_instant_token), \
+         patch('avs.engine.pipeline.run_peaks', side_effect=_instant_token):
+        result = runner.invoke(app, ['analyze', sid])
+    assert result.exit_code == 0, result.output
+    assert f'avs review {sid}' in result.output              # next-step hint
+
+    # ── review → directs to UI ───────────────────────────────────────────────
+    result = runner.invoke(app, ['review', sid])
+    assert result.exit_code == 0, result.output
+    assert 'ui' in result.output.lower() or 'localhost' in result.output.lower()
+
+    # ── assemble → export hint ───────────────────────────────────────────────
+    with patch('avs.engine.pipeline.run_assemble', side_effect=_instant_token):
+        result = runner.invoke(app, ['assemble', sid])
+    assert result.exit_code == 0, result.output
+    assert f'avs export {sid}' in result.output              # next-step hint
+
+    # ── export succeeds ──────────────────────────────────────────────────────
+    with patch('avs.engine.pipeline.run_export', side_effect=_instant_token):
+        result = runner.invoke(app, ['export', sid])
+    assert result.exit_code == 0, result.output
 
 
 def test_on_event_messages_appear_in_cli_output():

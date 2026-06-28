@@ -22,13 +22,14 @@ An action sports enthusiast who:
 
 ## Build Phases
 
-### Phase 1 — CLI Pipeline (current)
-Prove the core pipeline works on real footage before building any UI.
-All interaction via command line. Review step uses a generated static HTML page.
+### Phase 1 — CLI + NiceGUI (current)
+Full pipeline (ingest → analyze → review → assemble → export) works end-to-end.
+NiceGUI desktop UI is the primary interface. CLI exists for power users;
+review step directs to the NiceGUI UI.
 
-### Phase 2 — NiceGUI + LLM
-Add a minimal Python-native browser UI (NiceGUI) on top of the same pipeline.
-Add text input via a local Ollama LLM for brief-based clip selection.
+### Phase 2 — LLM + Footage Map
+Add text brief input via a local Ollama LLM for guided clip selection.
+Add a footage-map screen (thumbnail strip + telemetry graph + scene markers).
 
 ### Phase 3 — Form Factor Decision
 Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter for cross-platform mobile, or another approach. The pipeline code is reusable regardless.
@@ -63,9 +64,10 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 
 ### FR-5: Clip Marking — Pass 2
 - Pre-marks candidate regions based on telemetry peaks, motion intensity, audio spikes
-- CLI: prints candidate table, user accepts/rejects interactively; or generates static HTML review page
-- Phase 2 UI: card-based review interface with accept/reject/trim per candidate
-- Output: ordered list of accepted clip regions with in/out timestamps
+- Also marks boring regions (low-motion, auto-rejected but rescuable) and dull gaps (unclaimed spans)
+- NiceGUI UI: timeline bar + thumbnail card review; click cycles in/out/skip; boring/dull cycle differently
+- CLI: `avs review <session_id>` gates on status and prints the NiceGUI URL
+- Output: ordered list of accepted clip regions with in/out timestamps written to marks table
 
 ### FR-6: Sport Profile
 - First-use asks one question: what sport?

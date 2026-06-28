@@ -139,7 +139,7 @@ def analyze(
 def review(
     session_id: str = typer.Argument(..., help="Session ID to review"),
 ) -> None:
-    """Open candidate clip review in the browser (static HTML)."""
+    """Open the session review in the NiceGUI UI."""
     _startup()
     from avs.engine import sessions as eng_sessions
     from avs.models.schema import SessionStatus
@@ -155,10 +155,9 @@ def review(
         )
         raise typer.Exit(1)
 
-    from avs.processing.review import open_review
-    console.print(f"[bold]Opening review for session[/bold] {session_id} …")
-    open_review(session_id, console=console)
-    console.print(f"\nNext step: [bold]avs assemble {session_id}[/bold]")
+    console.print(f"[bold]Open the UI to review session[/bold] {session_id}")
+    console.print(f"Run [bold]avs ui[/bold] and navigate to the session, "
+                  f"or visit [bold]http://localhost:8080/session/{session_id}[/bold]")
 
 
 @app.command()

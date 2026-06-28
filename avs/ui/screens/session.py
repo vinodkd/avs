@@ -29,14 +29,11 @@ from pathlib import Path
 
 from nicegui import app, ui
 
-from avs import config
-from avs.models.db import get_session as db_session
-from avs.models.schema import (
-    Clip, Export, MarkStatus, Profile, Session, SessionStatus, TelemetryPoint,
-)
+from avs.models.schema import MarkStatus, SessionStatus
 from avs.prefs import get_prefs
 from avs.presets.sports import display_name
 from avs.engine import marks as eng_marks
+from avs.engine import sessions as eng_sessions
 from avs.engine import state
 from avs.engine.state import StageState
 from avs.ui.components.combine import CombinePanel
@@ -44,12 +41,13 @@ from avs.ui.components.progress import bar_html as _bar_html, dot_html as _dot_h
 from avs.ui.components.scan_progress import ScanProgressStrip, PROXY_STAGES, SCAN_STAGES, STAGE_LABEL
 from avs.ui.components.mark_card import mark_cards_html as _mark_cards_html
 from avs.ui.components.timeline import timeline_html as _timeline_html, PICK_STYLE as _PICK_STYLE
-from avs.ui.layout import sidebar
+from avs.ui.layout import page_shell, sidebar
 from avs.utils import fmt_duration as _fmt, fmt_timestamp as _tsfmt
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_GRADES   = ['punchy', 'cinematic', 'natural', 'warm', 'cool', 'vibrant']
+from avs.processing.assembly import GRADE_FILTERS as _GRADE_FILTERS
+_GRADES = list(_GRADE_FILTERS.keys())
 _SPORT_FB = ['moto', 'mtb', 'surf', 'ski', 'cycling', 'trail', 'skydive']
 
 
@@ -205,14 +203,7 @@ def _profile_info_html(sport: str) -> str:
     """What the sport profile actually does to the pipeline, in plain words.
     Lists only fields that are wired in today; the rest are called out as inert."""
     from avs.presets.sports import DEFAULT_PROFILES
-    with db_session() as db:
-        p = db.query(Profile).filter(Profile.sport == sport).first()
-        vals = (
-            {'color_grade': p.color_grade, 'motion_threshold': p.motion_threshold,
-             'scene_detector': p.scene_detector, 'scene_threshold': p.scene_threshold,
-             'scene_min_scene_len': p.scene_min_scene_len}
-            if p else DEFAULT_PROFILES.get(sport)  # same fallback the pipeline uses
-        )
+    vals = eng_sessions.get_profile_info(sport) or DEFAULT_PROFILES.get(sport)
     if not vals:
         return ('<div style="color:#888;font-size:0.75rem;padding:0.6rem">'
                 f'No profile found for "{sport}" — pipeline defaults apply.</div>')
@@ -233,7 +224,7 @@ def _profile_info_html(sport: str) -> str:
     out = [
         '<div style="max-width:340px;padding:0.6rem 0.75rem;font-size:0.75rem;color:#bbb">',
         f'<div style="font-weight:700;color:#ddd;margin-bottom:0.45rem">What the '
-        f'<span style="color:#5a9a5a">{display_name(sport)}</span> profile sets</div>',
+        f'<span style="color:#7a8fd8">{display_name(sport)}</span> profile sets</div>',
     ]
     for name, val, why in rows:
         out.append(
@@ -269,7 +260,6 @@ def _show_exports(session_id: str, container) -> None:
 # ── Delete helper ──────────────────────────────────────────────────────────────
 
 def _delete_session_button(session_id: str) -> None:
-    from avs.engine import sessions as eng_sessions
     from avs.ui.components.confirm_dialog import confirm_dialog
 
     def _do_delete():
@@ -306,11 +296,7 @@ def session_page(session_id: str) -> None:
     except Exception as exc:
         import traceback
         traceback.print_exc()
-        drawer = ui.left_drawer(value=True).style('background:#1a1a1a;border-right:1px solid #222')
-        drawer.props('breakpoint=0 width=180 mini-width=48')
-        with drawer:
-            sidebar('session', session_id)
-        with ui.column().style('padding:2rem;gap:1rem'):
+        with page_shell('session', session_id):
             ui.label('Something went wrong loading this session.').style('color:#e57373;font-size:1rem')
             ui.label(str(exc)).style('color:#666;font-size:0.8rem;font-family:monospace')
             ui.button('← Home', on_click=lambda: ui.navigate.to('/')).props('flat color=positive')
@@ -333,71 +319,53 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         preview_path = Path('/nonexistent/_preview.mp4')
         still_path   = Path('/nonexistent/_still.jpg')
         detect_method_ref = [_prefs['default_scan_method']]
-        with db_session() as db:
-            sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
+        sports = _sport_order(eng_sessions.list_sports() or _SPORT_FB)
     else:
-        with db_session() as db:
-            session = db.query(Session).filter(Session.id == session_id).first()
-            if not session:
-                ui.label('Session not found.').style('color:#e57373;padding:2rem')
-                return
-            status       = session.status
-            sport        = session.sport or 'unknown'
-            src          = session.source_path or ''
-            created      = session.created_at
-            _saved_actuals = {
-                'proxy':      session.proxy_s or 0.0,
-                'scan':       session.scan_s or 0.0,
-                'highlights': session.highlights_s or 0.0,
-                'combine':    session.combine_s or 0.0,
-                'export':     session.export_s or 0.0,
-            }
-            clips    = db.query(Clip).filter(Clip.session_id == session_id).order_by(Clip.clip_order).all()
-            clip_ids = [c.id for c in clips]
-            clip_info = [(c.id, c.filename, c.duration_s) for c in clips]
-            total_s   = sum(c.duration_s or 0 for c in clips)
-            marks_all = eng_marks.get_marks(session_id) if clip_ids else []
-            mark_data = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
-            from avs.processing.audio import clip_audio_spikes
-            from avs.prefs import get_prefs as _get_prefs
-            _spike_k = float(_get_prefs().get('audio_spike_k', 3.0))
-            _audio_spikes: dict[str, list[float]] = {
-                cid: clip_audio_spikes(cid, _spike_k) for cid in clip_ids
-            }
-            rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
-            boring_ids   = {m.id for m in marks_all if m.status == MarkStatus.BORING}
-            dull_ids     = {m.id for m in marks_all if m.status == MarkStatus.DULL}
-            sports = _sport_order([p.sport for p in db.query(Profile).order_by(Profile.sport).all()] or _SPORT_FB)
+        session = eng_sessions.get_session(session_id)
+        if not session:
+            ui.label('Session not found.').style('color:#e57373;padding:2rem')
+            return
+        status   = session.status
+        sport    = session.sport or 'unknown'
+        src      = session.source_path or ''
+        created  = session.created_at
+        _saved_actuals = {
+            'proxy':      session.proxy_s or 0.0,
+            'scan':       session.scan_s or 0.0,
+            'highlights': session.highlights_s or 0.0,
+            'combine':    session.combine_s or 0.0,
+            'export':     session.export_s or 0.0,
+        }
+        clip_info = eng_sessions.get_session_clips(session_id)
+        clip_ids  = [c[0] for c in clip_info]
+        total_s   = sum(c[2] or 0 for c in clip_info)
+        marks_all = eng_marks.get_marks(session_id) if clip_ids else []
+        mark_data = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
+        _audio_spikes = eng_marks.get_audio_spikes(clip_ids)
+        rejected_ids = {m.id for m in marks_all if m.status == MarkStatus.REJECTED}
+        boring_ids   = {m.id for m in marks_all if m.status == MarkStatus.BORING}
+        dull_ids     = {m.id for m in marks_all if m.status == MarkStatus.DULL}
+        sports = _sport_order(eng_sessions.list_sports() or _SPORT_FB)
 
         proxy_task      = state.get_task(f'{session_id}_proxy')
         scan_task       = state.get_task(f'{session_id}_scan')
         highlights_task = state.get_task(f'{session_id}_highlights')
         legacy_task     = state.get_task(session_id)
 
-        all_proxies_done = bool(clip_ids) and all(
-            (config.PROXY_DIR / f'{cid}.mp4').exists() for cid in clip_ids
-        )
+        all_proxies_done = bool(clip_ids) and eng_sessions.count_proxies_done(clip_ids) == len(clip_ids)
         proxy_running = (
             (proxy_task is not None and not proxy_task.done) or
             (legacy_task is not None and not legacy_task.done and not all_proxies_done)
         )
-        with db_session() as db:
-            has_motion_data = bool(clip_ids) and (
-                db.query(TelemetryPoint)
-                .filter(TelemetryPoint.clip_id.in_(clip_ids))
-                .filter(
-                    (TelemetryPoint.motion_intensity.isnot(None)) |
-                    (TelemetryPoint.motion_intensity_quick.isnot(None))
-                ).count() > 0
-            )
+        has_motion_data = eng_sessions.has_motion_data(clip_ids)
         scan_running       = scan_task is not None and not scan_task.done
         highlights_running = highlights_task is not None and not highlights_task.done
         post_analysis = status not in (
             SessionStatus.IMPORTING, SessionStatus.INGESTED, SessionStatus.ANALYZING
         )
 
-        preview_path = config.PREVIEW_DIR / f'{session_id}_preview.mp4'
-        still_path   = config.STILL_DIR / f'{session_id}_still.jpg'
+        preview_path = eng_sessions.preview_path(session_id)
+        still_path   = eng_sessions.still_path(session_id)
         detect_method_ref = [_pending_methods.get(session_id, _prefs['default_scan_method'])]
 
     # Review state per mark: 'in' | 'out' | 'skip' (boring) | 'dull' (unclaimed gap)
@@ -489,7 +457,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
             return export_url
         if not is_new and preview_path.exists():
             return f'/previews/{session_id}_preview.mp4'
-        p = next((cid for cid in clip_ids if (config.PROXY_DIR / f'{cid}.mp4').exists()), None)
+        p = next((cid for cid in clip_ids if eng_sessions.proxy_path(cid).exists()), None)
         return f'/proxies/{p}.mp4' if p else ''
 
     # While proxies are still building, a half-written proxy file already exists
@@ -562,7 +530,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
     # export refs
     _export_a16_val    = [bool(_prefs['export_16_9'])]
     _export_a9_val     = [bool(_prefs['export_9_16'])]
-    _export_outdir_val = [_prefs['output_dir'] or str(config.OUTPUT_DIR)]
+    _export_outdir_val = [_prefs['output_dir'] or str(eng_sessions.default_output_dir())]
     _export_ctl_refs:  list = []
 
     # ── Sidebar — starts collapsed on session pages ────────────────────────────
@@ -719,9 +687,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                     v = _saved_actuals.get(stage, 0.0)
                     return _fmt(v) if v else ''
 
-                _n_prox_done = sum(
-                    1 for cid in clip_ids if (config.PROXY_DIR / f'{cid}.mp4').exists()
-                )
+                _n_prox_done = eng_sessions.count_proxies_done(clip_ids)
                 _sub_row('proxy', 'Create working copy', _est_str['proxy'], _init_act('proxy'),
                          f'{_n_prox_done}/{len(clip_ids)}' if clip_ids and not all_proxies_done
                          else (str(len(clip_ids)) if clip_ids else ''))
@@ -967,7 +933,6 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         if actual_s is not None:
             _stage_actuals[stage] = actual_s
             if persist:
-                from avs.engine import sessions as eng_sessions
                 eng_sessions.set_stage_time(session_id, stage, actual_s)
         elif stage in _stage_actuals:
             del _stage_actuals[stage]
@@ -1219,7 +1184,6 @@ window.avsCardClick = function(mid, cid, ins) {{
                 if cancel_btn_ref[0]:
                     cancel_btn_ref[0].set_visibility(False)
                 return
-            from avs.engine import sessions as eng_sessions
             eng_sessions.set_session_status(session_id, SessionStatus.READY)
             state.start_task(f'{session_id}_thumbnails')
             engine.run_thumbnails(session_id, on_progress=_on_progress, on_done=_on_thumbnails_done)

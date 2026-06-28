@@ -85,15 +85,14 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
   marker shows the optical flow maximum that anchored the clip. Timeline markers are a
   fallback if the overlay proves too complex. Noted 2026-06-20.
 
-- [ ] **Stop elapsed timer on export completion** — the stage elapsed timer keeps
-  running after export finishes. It should stop (freeze on final time) when the
-  stage reaches a terminal state. Noted 2026-06-21.
+- [x] ~~**Stop elapsed timer on export completion**~~ — Shipped 2026-06-28:
+  `_elapsed_timer.active = False` in `_watch_export()` when done; timer initialises
+  with `active=False` for already-exported sessions.
 
-- [ ] **UI reskin — periwinkle blue + logo redesign** — replace current colour scheme
-  with periwinkle blue as the primary brand colour throughout the NiceGUI UI and site.
-  Redesign the app logo/icon to use the up-arrow symbol with the aVs wordmark. Apply
-  consistently across: app header, buttons, timeline accent colour, site CSS.
-  Noted 2026-06-21 (discussed in a prior session, not previously captured in backlog).
+- [ ] **UI reskin — logo redesign** — redesign the app logo/icon to use the up-arrow
+  symbol with the aVs wordmark. The periwinkle blue colour scheme is already shipped
+  (accent `#7a8fd8` wired through `apply_theme()` in `ui/theme.py`; all Quasar
+  `positive` and `primary` buttons are periwinkle). Only the logo remains. Noted 2026-06-21.
 
 - [ ] **Option to hide dull cards in review** — dull sections render as cards like
   everything else; fine while sessions are short (the card area scrolls), but
@@ -175,12 +174,13 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
   Requires a rescan of existing sessions to populate the flag.
 
 - [ ] Pipeline timing
+  - [x] ~~Add per-stage actual duration to `Session`~~ — Shipped 2026-06-28: five columns
+    `proxy_s`, `scan_s`, `highlights_s`, `combine_s`, `export_s` on `Session`.
+    Written by `engine.sessions.set_stage_time()` at stage completion.
+  - [x] ~~Stage-table "est→actual" times persist across app restarts~~ — Shipped 2026-06-28:
+    page load reads `_saved_actuals` from DB; in-progress stages accumulate on top.
+  - [ ] Show per-stage timings in `avs sessions` output
   - [ ] Add `analyzed_at`, `assembled_at`, `exported_at` timestamps to `Session`
-  - [ ] Add `analysis_duration_s`, `assembly_duration_s`, `export_duration_s` to `Session`
-  - [ ] Show timings in `avs sessions` output
-  - [ ] Stage-table "est→actual" times: actuals live in in-process task state, so
-        they survive page reloads but are lost on app restart — persist via the
-        duration columns above
 
 - [ ] **Session status must be authoritative from DB** — on restart, if the DB says
     `assembled` or `ready`, the UI must show that state regardless of whether proxy/cache
@@ -318,13 +318,24 @@ Kept struck-through for history; footage map remains the one open idea.
 
 The NiceGUI app is the primary interface. Revisit this if/when power users appear.
 
-- [ ] **Refactor `cli.py` to the event-based backend** — the pipeline now exposes
-  `on_event`/`on_progress` callbacks, separate proxy/scan/peaks steps, shared task
-  state, and session statuses driven by the UI; `cli.py` still calls the older
-  combined entry points. Bring it in line: progress output from `on_event`,
-  separate analyze steps, status-aware resume.
-  - [ ] Replace review HTML temp-file polling (`processing/review.py`) with the
-    NiceGUI review flow or an event-based equivalent
+- [x] ~~**Finish session.py — remove all remaining inline DB queries and config path checks**~~
+  Shipped 2026-06-28 (engine-refactor branch, Step 9). Added to `engine/sessions.py`:
+  `get_session_clips()`, `has_motion_data()`, `list_sports()`, `get_profile_info()`,
+  `proxy_path()`, `preview_path()`, `still_path()`, `count_proxies_done()`.
+  Added to `engine/marks.py`: `get_audio_spikes()`. `session.py` now imports only
+  `MarkStatus`/`SessionStatus` from schema — no `db_session`, no `config`, no `processing/`.
+
+- [x] ~~**Refactor `cli.py` to the engine layer**~~ — Shipped 2026-06-28 (engine-refactor branch,
+  Steps 0–8): `cli.py` calls `engine/pipeline.py` for all stages; `on_event` / `on_progress`
+  callbacks render via `rich`; cancel via `Ctrl-C` → `engine.cancel_current()`; all eight
+  commands (`ingest`, `analyze`, `review`, `assemble`, `refine`, `export`, `sessions`,
+  `profile`) wire through the engine.
+  - [x] ~~Replace review HTML temp-file polling (`processing/review.py`) with the
+    NiceGUI review flow~~ — `review.py` deleted; `avs review` gates on status and prints
+    the NiceGUI URL. Review itself happens in the UI.
+- [ ] **Status-aware resume on `analyze`** — if a session has partial proxy/scan results,
+  `avs analyze` should skip completed clips and resume from where it stopped.
+  Currently re-runs all stages from scratch.
 
 ---
 

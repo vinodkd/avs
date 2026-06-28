@@ -47,28 +47,42 @@ The current Python architecture does not preclude either future. It just doesn't
 
 ## Architecture
 
-### Phase 1: CLI
+### Shared engine layer
+
+Both the CLI and the UI are thin consumers of the same `engine/` layer. The engine wraps
+`processing/` algorithms and owns all orchestration (threading, cancel tokens, task state,
+DB writes). Neither the CLI nor the UI calls `processing/` directly.
+
+```
+CLI ──┐
+      ├── engine/ ── processing/   (algorithms unchanged)
+UI  ──┘
+```
+
+### CLI
 
 ```
 avs/
-  cli.py          ← click/typer commands
-  processing/     ← pure Python pipeline modules
+  cli.py          ← Typer commands — calls engine/, renders via rich
+  engine/         ← shared orchestration (pipeline, sessions, marks, state, cancel)
+  processing/     ← algorithms: analysis, peaks, assembly, export, ingest
   models/         ← SQLAlchemy + SQLite
   presets/        ← sport profiles, LUTs, music
 
 User runs:
-  python -m avs ingest /media/SDCARD --sport mtb
-  python -m avs analyze <session_id>
-  python -m avs review <session_id>     ← opens static HTML in browser
-  python -m avs assemble <session_id>
-  python -m avs export <session_id>
+  avs ingest /media/SDCARD/DCIM --sport mtb
+  avs analyze <session_id>
+  avs review <session_id>       ← gates on status; directs to NiceGUI UI
+  avs assemble <session_id>
+  avs export <session_id>
+  avs ui                        ← launches the NiceGUI desktop UI
 ```
 
 ### UI: NiceGUI (primary interface)
 
 ```
 avs/
-  ui/             ← NiceGUI screens
+  ui/             ← NiceGUI screens and components — calls engine/, renders via NiceGUI
   llm/            ← Ollama client, prompt templates (future)
   main.py         ← packaged app entry point (migrations → init_db → UI)
   updater.py      ← background GitHub update check
@@ -138,51 +152,67 @@ Startup sequence (packaged):
 ```
 avs/
 ├── CLAUDE.md
+├── README.md
 ├── docs/
 │   ├── requirements.md
-│   └── design.md
+│   ├── design.md
+│   └── backlog.md
 ├── brainstorm/                  (read-only reference)
 ├── avs/
 │   ├── __init__.py
 │   ├── __main__.py              (python -m avs entry point)
-│   ├── cli.py                   (Typer CLI commands)
+│   ├── cli.py                   (Typer CLI commands — calls engine/)
 │   ├── config.py                (paths, constants, settings)
-│   ├── processing/
-│   │   ├── __init__.py
+│   ├── prefs.py                 (app_settings DB table wrapper)
+│   ├── utils.py                 (fmt_duration, fmt_timestamp, is_valid_video)
+│   ├── engine/                  (shared orchestration layer)
+│   │   ├── cancel.py            (CancelToken: cancel(), is_cancelled(), register_cleanup())
+│   │   ├── marks.py             (get_marks, count_actionable_marks, set_mark_statuses)
+│   │   ├── pipeline.py          (run_proxy, run_scan, run_peaks, run_assemble, run_export)
+│   │   ├── sessions.py          (list, get, delete, set_stage_time, list_exports)
+│   │   └── state.py             (TaskState, StageState, task tracking)
+│   ├── processing/              (algorithms — not called directly by UI or CLI)
 │   │   ├── ingest.py            (scan folder, detect camera, group chapters)
 │   │   ├── telemetry.py         (GPMF parser, SRT parser, normalization)
 │   │   ├── analysis.py          (proxy gen, thumbnails, scene detect, optical flow)
-│   │   ├── peaks.py             (candidate mark generation)
-│   │   ├── assembly.py          (FFmpeg: concat, LUT, audio mix, overlay)
+│   │   ├── audio.py             (RMS energy, spike detection, VAD)
+│   │   ├── peaks.py             (candidate mark generation, boring/dull region detection)
+│   │   ├── assembly.py          (FFmpeg: concat, grade filters, audio mix, overlay)
 │   │   └── export.py            (final encode per aspect ratio)
 │   ├── models/
-│   │   ├── __init__.py
-│   │   ├── db.py                (SQLAlchemy engine, session factory)
+│   │   ├── db.py                (SQLAlchemy engine, session factory, inline migrations)
 │   │   ├── schema.py            (ORM models)
 │   │   └── migrations/          (Alembic)
 │   ├── presets/
-│   │   ├── sports.py            (sport profile dataclasses)
-│   │   ├── luts/                (.cube LUT files, one per grade style)
-│   │   └── music/               (royalty-free MP3s, organised by sport)
-│   ├── ui/                      (Phase 2 — NiceGUI)
-│   │   ├── __init__.py
-│   │   ├── app.py               (NiceGUI app entry point)
+│   │   ├── sports.py            (sport profile dataclasses + DISPLAY_NAMES)
+│   │   └── luts/                (reserved for LUT files)
+│   ├── ui/                      (NiceGUI — primary interface)
+│   │   ├── app.py               (NiceGUI app entry point, theme wiring)
+│   │   ├── layout.py            (page_shell() context manager, sidebar())
+│   │   ├── state.py             (re-export shim → engine/state)
+│   │   ├── theme.py             (colour constants: ACCENT periwinkle, BG_PAGE, etc.)
+│   │   ├── filepicker.py        (native file dialog via subprocess)
 │   │   ├── screens/
-│   │   │   ├── import_screen.py
-│   │   │   ├── footage_map.py
-│   │   │   ├── clip_marks.py
-│   │   │   ├── review_player.py
-│   │   │   └── export_screen.py
-│   │   └── components/          (shared NiceGUI components)
-│   └── llm/                     (Phase 2 — Ollama)
-│       ├── __init__.py
-│       ├── client.py            (Ollama connection, health check)
-│       ├── prompts.py           (system prompt, schema definition)
-│       └── parser.py            (response → edit plan struct)
+│   │   │   ├── home.py          (session list table, New Edit Session)
+│   │   │   ├── session.py       (full editing workflow: proxy→scan→pick→combine→export)
+│   │   │   └── settings.py      (preferences + per-sport profile editor)
+│   │   └── components/
+│   │       ├── combine.py       (grade swatch strip, combine progress watcher)
+│   │       ├── confirm_dialog.py (delete confirmation dialog)
+│   │       ├── drop_zone.py     (new-session file picker + sport selector)
+│   │       ├── mark_card.py     (review thumbnail cards HTML)
+│   │       ├── progress.py      (bar_html, dot_html helpers)
+│   │       ├── scan_progress.py (per-clip proxy/scan progress strips)
+│   │       ├── session_card.py  (session table row renderer)
+│   │       ├── stage_bar.py     (Next / Cancel action bar)
+│   │       └── timeline.py      (mark timeline HTML, PICK_STYLE)
+│   └── llm/                     (future — Ollama integration)
 ├── tests/
+│   ├── fixtures/
+│   │   └── source.mp4           (synthetic test video for pipeline tests)
+│   ├── test_cli.py
 │   ├── test_ingest.py
 │   ├── test_telemetry.py
-│   ├── test_analysis.py
 │   └── test_peaks.py
 ├── run.py                       (convenience: python run.py [command])
 └── pyproject.toml
@@ -202,8 +232,13 @@ CREATE TABLE sessions (
     camera          TEXT,                      -- 'gopro', 'dji', 'insta360', 'unknown'
     total_clips     INTEGER,
     total_duration_s REAL,
-    status          TEXT NOT NULL              -- 'importing' | 'analyzing' | 'ready'
-                                               -- | 'assembled' | 'exported'
+    status          TEXT NOT NULL,             -- 'importing' | 'ingested' | 'analyzing'
+                                               -- | 'ready' | 'assembled' | 'exported'
+    proxy_s         REAL,                      -- actual wall-clock time for proxy stage
+    scan_s          REAL,                      -- actual wall-clock time for scan stage
+    highlights_s    REAL,                      -- actual wall-clock time for peaks stage
+    combine_s       REAL,                      -- actual wall-clock time for combine stage
+    export_s        REAL                       -- actual wall-clock time for export stage
 );
 
 -- One row per logical video clip
@@ -296,19 +331,24 @@ CREATE TABLE app_settings (
 
 ---
 
-## CLI Interface (Phase 1)
+## CLI Interface
+
+The CLI is a thin consumer of the engine layer — the same engine calls the NiceGUI UI makes.
+Progress events from the engine are rendered via `rich`; the UI renders them in NiceGUI.
 
 ```
-python -m avs --help
+avs --help
 
 Commands:
-  ingest    Scan a folder or SD card and create a session
-  analyze   Run analysis pipeline on an imported session
-  review    Open the candidate review interface (static HTML)
+  ingest    Scan a folder or SD card and create a new session
+  analyze   Run the full analysis pipeline (proxy → scan → peaks)
+  review    Gate-check session status; direct to the NiceGUI UI for review
   assemble  Assemble accepted marks into a preview video
+  refine    Re-assemble with adjustments (grade, removed clips, music swap)
   export    Export the preview to final output files
   sessions  List all sessions with status
-  profile   Show or update sport profile preferences
+  profile   Show or update a sport profile
+  ui        Launch the NiceGUI desktop UI
 ```
 
 ### Command Details
@@ -318,33 +358,34 @@ Commands:
 avs ingest /media/SDCARD/DCIM --sport mtb
 avs ingest ~/footage/todays-ride --sport mtb
 # → prints session ID, clip count, total duration, camera brand detected
+# → Next step: avs analyze <session_id>
 
-# Run analysis (can be run immediately after ingest; picks up where it left off)
-avs analyze <session_id>             # full proxy-based analysis (default)
+# Run analysis (proxy build → scene detect → peak detection)
+avs analyze <session_id>             # full proxy-based motion analysis (default)
 avs analyze <session_id> --jpg       # faster JPEG frame extraction for motion (~15× faster)
-avs analyze <session_id> --proxy     # explicit proxy-based motion analysis
-# → progress bar per clip: proxy, thumbnails, scene detect, motion intensity
-# → prints candidate mark summary on completion
-# Both --jpg and --proxy can be run on the same session; results are kept separately
-# and shown as separate sections in review.
+# → rich progress bar per clip per stage (proxy, scan, peaks)
+# → Ctrl-C cancels cleanly via CancelToken
+# → Next step: avs review <session_id>
 
-# Review candidates (Pass 2)
+# Review candidates
 avs review <session_id>
-# → generates /tmp/avs_review_<session_id>.html and opens in default browser
-# → user checks boxes, clicks Submit
-# → CLI polls for response file, applies decisions to database
+# → gates on session status (must be ready/assembled/exported)
+# → prints: run 'avs ui' and navigate to the session, or visit localhost:8080/session/<id>
+# The actual review (timeline, thumbnail cards, accept/reject) is in the NiceGUI UI
 
-# Assemble preview (Pass 3)
-avs assemble <session_id>                      # uses all accepted marks
+# Launch the UI
+avs ui [--port 8765]
+# → starts NiceGUI on localhost; opens in the default browser
+
+# Assemble preview
+avs assemble <session_id>
 avs assemble <session_id> --source jpg         # only motion_peak_jpg marks
 avs assemble <session_id> --source proxy       # only motion_peak marks
 avs assemble <session_id> --source telemetry   # only telemetry_peak marks
-# → warns if multiple sources present and no --source given (would produce duplicates)
-# → marks ordered by (clip.clip_order, mark.in_s) for correct chronological sequence
 # → FFmpeg concat + grade filter + audio mix + overlays
-# → opens preview with system video player on completion
+# → Next step: avs export <session_id>
 
-# Refine (re-runs assembly with changes)
+# Refine (re-assemble with changes)
 avs refine <session_id> --remove <mark_id>
 avs refine <session_id> --swap-music
 avs refine <session_id> --grade cinematic
@@ -352,12 +393,17 @@ avs refine <session_id> --no-overlay
 avs refine <session_id> --source jpg
 
 # Export
-avs export <session_id> --aspect 16:9 9:16
+avs export <session_id>                        # defaults: 16:9 only
+avs export <session_id> --aspect 16:9 --aspect 9:16
 # → outputs to ~/Videos/aVs/<date>_<sport>_<aspect>.mp4
 
 # Session management
-avs sessions               # list all
+avs sessions               # list all (ID, date, sport, camera, clips, status)
 avs sessions --status ready  # filter by status
+
+# Sport profiles
+avs profile mtb            # show active settings
+avs profile mtb --grade cinematic --music-energy high
 ```
 
 ---
@@ -466,22 +512,23 @@ gaps — everything is highlight (green/red), boring (amber hatched), or dull
 (solid orange, `–` badge). Dull cycles dull↔include on click, exactly like
 boring's rescue.
 
-### Stage 4 — Review HTML (`cli.py` + `processing/review.py`)
+### Stage 4 — Review (`ui/screens/session.py` — NiceGUI REVIEW mode)
+
+The static-HTML review (`processing/review.py`) is deleted. Review is now in the NiceGUI
+session page. The CLI `avs review` command gates on session status and prints the URL.
 
 ```
-generate /tmp/avs_review_<session_id>.html:
-  for each candidate mark (sorted by score desc):
-    <div class="card">
-      <img src="file:///cache/thumbs/clip_id/nearest_thumb.jpg">
-      <span>Clip N | {in_s}–{out_s} | score {score:.2f} | peak {peak_speed} km/h</span>
-      <input type="checkbox" name="mark_{id}" checked>
-    </div>
-  <button onclick="submit()">Apply</button>
-  <script>submit writes JSON to /tmp/avs_review_<session_id>_response.json</script>
+NiceGUI session page enters REVIEW mode when the user clicks "Review clips →":
+  stage table compresses (est/act columns hidden, counts stay)
+  review panel slides in below the player:
+    timeline bar: one coloured rectangle per mark (green=in, red=out, amber=boring, orange=dull)
+    thumbnail cards: one per mark, showing nearest proxy thumbnail
+      each card: thumbnail image, clip name, in/out timestamps, score badge
+      click: cycles in → out → in (boring: skip ↔ in; dull: dull ↔ in); seeks proxy player
 
-open HTML in default browser (webbrowser.open)
-poll for response file (1s interval, 5min timeout)
-on receipt: update marks table (accepted/rejected), delete temp files
+user clicks "Save & combine clips →":
+  engine.marks.set_mark_statuses() — writes decisions to marks table
+  page transitions to Combine step; combine watcher starts
 ```
 
 ### Stage 5 — Assembly (`processing/assembly.py`)
