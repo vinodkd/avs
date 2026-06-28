@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=AxEdUp
-Comment=Action camera footage editor
-Exec=axedup
-Icon=axedup
-Type=Application
-Categories=AudioVideo;Video;
-Terminal=false
-StartupWMClass=axedup

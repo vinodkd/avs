@@ -1,9 +1,9 @@
-# AxEdUp: Form Factor Brainstorm (Flat Video Scope)
+# aVs: Form Factor Brainstorm (Flat Video Scope)
 
 ## Scope Assumption
 
 Flat video only — standard MP4 from GoPro, DJI Osmo, and Insta360 flat cameras.
-AxEdUp360 covers 360 footage later.
+aVs360 covers 360 footage later.
 
 This document is a brainstorm — all options are live. Nothing is decided yet.
 
@@ -12,25 +12,25 @@ This document is a brainstorm — all options are live. Nothing is decided yet.
 ## File Transfer Options
 
 ### Option A: Cloud-to-Cloud
-Camera brand cloud (GoPro Plus, DJI cloud, Insta360 cloud) auto-uploads footage. AxEdUp connects via OAuth and pulls from there.
+Camera brand cloud (GoPro Plus, DJI cloud, Insta360 cloud) auto-uploads footage. aVs connects via OAuth and pulls from there.
 - **Pro:** Fully automatic — footage appears without user action
-- **Con:** Requires user to have the camera brand's cloud subscription; requires AxEdUp to negotiate API partnerships with each brand
+- **Con:** Requires user to have the camera brand's cloud subscription; requires aVs to negotiate API partnerships with each brand
 - **When to do it:** Phase 2+ once the core works
 
 ### Option B: Share Extension
-User selects clips in any app (Files, GoPro Quik, camera roll) and shares to AxEdUp.
+User selects clips in any app (Files, GoPro Quik, camera roll) and shares to aVs.
 - **Pro:** Works with any file source; no API dependencies
 - **Con:** Requires a manual "share" gesture per session; footage must already be in another app
 - **When to do it:** Easy to implement, good fallback
 
 ### Option C: Camera WiFi Direct Pull
-Camera creates a WiFi hotspot; AxEdUp pulls new files automatically when connected.
+Camera creates a WiFi hotspot; aVs pulls new files automatically when connected.
 - **Pro:** Zero cloud subscriptions; works at the trailhead; feels automatic
 - **Con:** Only works cleanly for GoPro (Open GoPro API); DJI/Insta360 don't expose WiFi file access to third parties easily
 - **When to do it:** Phase 1 for GoPro; deferred for DJI/Insta360
 
 ### Option D: USB-C / SD Card Dongle
-User inserts SD card via a USB-C dongle. AxEdUp reads it as a file system.
+User inserts SD card via a USB-C dongle. aVs reads it as a file system.
 - **Pro:** Universal — works for all three brands, no API, no WiFi; most action sports enthusiasts already carry a dongle
 - **Con:** Requires the dongle and a deliberate physical action; not at-the-trailhead if user doesn't carry it
 - **When to do it:** Phase 1 — simplest universal option
@@ -122,13 +122,13 @@ The key insight: converting a user's plain-language brief into a structured edit
 
 ### Option 4: AI Service Extension (Plugin / MCP)
 
-AxEdUp lives *inside* an existing AI assistant — no separate app.
+aVs lives *inside* an existing AI assistant — no separate app.
 
 **How it works:**
 - User has Claude Desktop (or ChatGPT, Gemini) already open
-- AxEdUp is installed as an MCP server (Claude) or plugin (ChatGPT/Gemini)
+- aVs is installed as an MCP server (Claude) or plugin (ChatGPT/Gemini)
 - User talks to their AI assistant naturally: "edit today's canyon footage, third clip is best, YouTube private"
-- The assistant calls AxEdUp tools: `ingest_session`, `analyze_clips`, `create_edit_plan`, `assemble_video`, `preview_video`, `publish_video`
+- The assistant calls aVs tools: `ingest_session`, `analyze_clips`, `create_edit_plan`, `assemble_video`, `preview_video`, `publish_video`
 - Review happens via a Claude Artifact (inline video player in the chat) or a local browser URL
 - Refinement is just the next message in the conversation — no custom chat UI to build
 
@@ -142,7 +142,7 @@ AxEdUp lives *inside* an existing AI assistant — no separate app.
 **Con:**
 - User must already use an AI assistant and be comfortable with MCP/plugins
 - Platform dependency — tied to Claude/ChatGPT ecosystem decisions
-- Still requires a locally-running AxEdUp daemon for file access and processing
+- Still requires a locally-running aVs daemon for file access and processing
 - Preview/review UX inside a chat interface is less polished than a dedicated player
 - Less discoverable than an app store listing
 
@@ -195,6 +195,6 @@ The form factor decision only affects:
 
 1. Which form factor fits the target user's daily habits best — are they Claude/ChatGPT users already?
 2. For local LLM: is brief→edit-plan quality good enough with a 7B model, or do we need 13B+?
-3. Business model: if the app is free to run (local LLM, local processing), how does AxEdUp make money?
+3. Business model: if the app is free to run (local LLM, local processing), how does aVs make money?
 4. Can a single brief handle a multi-day trip (50+ clips across 3 cameras)?
 5. ~~What does "my usual preferences" look like as a data model — and how is it first established?~~ **Resolved:** One onboarding question — "what sport?" — bootstraps a complete sport default profile. Tweaks from each session accumulate into a personal profile over time. See [user-profile.md](user-profile.md).

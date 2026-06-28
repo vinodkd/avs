@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "axedup"
+name = "avs"
 version = "0.1.4"
-description = "Action camera footage editing and upload tool"
+description = "Adventure video editing and sharing tool"
 requires-python = ">=3.10"
 dependencies = [
     # CLI
@@ -41,15 +41,11 @@ dev = [
 ]
 
 [project.scripts]
-axedup    = "axedup.cli:app"
-axedup-ui = "axedup.main:main"
+avs    = "avs.cli:app"
+avs-ui = "avs.main:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["axedup*"]
-
-[tool.setuptools.package-data]
-"axedup.presets" = ["luts/*.cube", "music/**/*.mp3"]
+[tool.hatch.build.targets.wheel]
+packages = ["avs"]
 
 [tool.ruff]
 target-version = "py311"

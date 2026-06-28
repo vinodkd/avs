@@ -1,0 +1,80 @@
+# Test fixture: source.mp4
+
+Synthetic ~120s video for pipeline testing. `source.mp4` is gitignored (binary).
+Regenerate it with:
+
+```
+python3 tests/fixtures/create_fixture.py
+```
+
+## Motion encoding
+
+| Level  | Filter                        | Approx intensity at 480p proxy |
+|--------|-------------------------------|--------------------------------|
+| high   | sinusoidal texture, v=0.002   | ~0.69                          |
+| medium | sinusoidal texture, v=0.0008  | ~0.28                          |
+| low    | solid colour (no motion)      | ~0.00                          |
+
+Scene cuts occur at all LOW↔HIGH/MEDIUM transitions.
+
+## Timeline
+
+| Start | End | Duration | Motion | Audio | Label |
+|-------|-----|----------|--------|-------|-------|
+|   0.0s |   6.0s |  6.0s | low    | quiet | intro – low motion |
+|   6.0s |  20.0s | 14.0s | low    | quiet | boring 1 |
+|  20.0s |  26.0s |  6.0s | high   | quiet | scene A – motion peak 1 |
+|  26.0s |  28.0s |  2.0s | high   | spike | audio spike 1 |
+|  28.0s |  33.0s |  5.0s | high   | quiet | motion peak 2 |
+|  33.0s |  46.0s | 13.0s | low    | quiet | boring 2 |
+|  46.0s |  52.0s |  6.0s | high   | quiet | scene B – motion peak 3 |
+|  52.0s |  54.0s |  2.0s | high   | spike | audio spike 2 |
+|  54.0s |  62.0s |  8.0s | medium | quiet | medium motion |
+|  62.0s |  76.0s | 14.0s | low    | quiet | boring 3 |
+|  76.0s |  82.0s |  6.0s | high   | quiet | scene C – motion peak 4 |
+|  82.0s |  84.0s |  2.0s | medium | spike | audio spike 3 |
+|  84.0s |  91.0s |  7.0s | medium | quiet | medium motion |
+|  91.0s | 103.0s | 12.0s | low    | quiet | boring 4 |
+| 103.0s | 108.0s |  5.0s | high   | quiet | scene D – motion peak 5 |
+| 108.0s | 113.0s |  5.0s | high   | quiet | motion peak 6 |
+| 113.0s | 115.0s |  2.0s | high   | spike | audio spike 4 |
+| 115.0s | 120.0s |  5.0s | low    | quiet | outro – low motion |
+
+## Expected pipeline detections
+
+These are approximate — exact timestamps depend on threshold settings.
+
+**Motion peaks** (high-motion sections, default sport thresholds):
+  - Peak 1: ~20s–26s  (scene A – motion peak 1)
+  - Peak 2: ~26s–28s  (audio spike 1)
+  - Peak 3: ~28s–33s  (motion peak 2)
+  - Peak 4: ~46s–52s  (scene B – motion peak 3)
+  - Peak 5: ~52s–54s  (audio spike 2)
+  - Peak 6: ~76s–82s  (scene C – motion peak 4)
+  - Peak 7: ~103s–108s  (scene D – motion peak 5)
+  - Peak 8: ~108s–113s  (motion peak 6)
+  - Peak 9: ~113s–115s  (audio spike 4)
+
+**Boring regions** (low-motion, ≥10s):
+  - Boring 1: ~6s–20s  (boring 1)
+  - Boring 2: ~33s–46s  (boring 2)
+  - Boring 3: ~62s–76s  (boring 3)
+  - Boring 4: ~91s–103s  (boring 4)
+
+**Audio spikes** (high-amplitude bursts):
+  - Spike 1: ~26s  (audio spike 1)
+  - Spike 2: ~52s  (audio spike 2)
+  - Spike 3: ~82s  (audio spike 3)
+  - Spike 4: ~113s  (audio spike 4)
+
+**Scene cuts** (LOW↔HIGH transitions):
+  - Cut 1: ~20s  (into: scene A – motion peak 1)
+  - Cut 2: ~33s  (into: boring 2)
+  - Cut 3: ~46s  (into: scene B – motion peak 3)
+  - Cut 4: ~54s  (into: medium motion)
+  - Cut 5: ~62s  (into: boring 3)
+  - Cut 6: ~76s  (into: scene C – motion peak 4)
+  - Cut 7: ~82s  (into: audio spike 3)
+  - Cut 8: ~91s  (into: boring 4)
+  - Cut 9: ~103s  (into: scene D – motion peak 5)
+  - Cut 10: ~115s  (into: outro – low motion)

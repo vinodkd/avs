@@ -83,12 +83,12 @@ Raw `.INSV` files are dual-fisheye — stitching into equirectangular or reframi
 This is computationally heavy — Insta360 app offloads to phone GPU; Studio uses CPU/GPU on desktop.
 
 ### Reframing as Editing
-The "direct the camera after the fact" paradigm is fundamentally different from standard video editing. You are setting a virtual camera path through a 360 sphere — keyframed pan/tilt/roll/fov. AxEdUp would need to decide: support full 360 reframing, or convert to flat and treat like any other camera?
+The "direct the camera after the fact" paradigm is fundamentally different from standard video editing. You are setting a virtual camera path through a 360 sphere — keyframed pan/tilt/roll/fov. aVs would need to decide: support full 360 reframing, or convert to flat and treat like any other camera?
 
 ### File Size
 360 files at full quality are enormous — 8K 30fps is ~600–800 MB/min. Proxy workflow (using LRV files for editing, then re-rendering final) is essential.
 
-## Strengths for AxEdUp
+## Strengths for aVs
 - Insta360's AI Editor and Deep Track show the category direction — AI-assisted editing is expected
 - 360 reframing is a genuinely unique feature that no other brand offers
 - GO 3 (wearable) footage has a very different feel — hands-free POV — worth a dedicated preset

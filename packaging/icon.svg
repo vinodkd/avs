@@ -2,17 +2,16 @@
   <defs>
     <clipPath id="c"><circle cx="50" cy="50" r="49"/></clipPath>
   </defs>
-  <!-- Background: light green -->
-  <circle cx="50" cy="50" r="49" fill="#5ab85a"/>
+  <circle cx="50" cy="50" r="49" fill="#7a8fd8"/>
   <g clip-path="url(#c)">
-    <!-- "Ax" shifted right to center the whole group; "Ax"≈52px + gap 4px + arrow 18px = 74px → start at x=13 -->
+    <!-- "aV" shifted to leave room for arrow; group width ≈74px → start x=13 -->
     <text x="13" y="66"
           font-family="Arial Black,Arial,sans-serif"
           font-weight="900"
           font-size="38"
-          fill="#ffffff">Ax</text>
-    <!-- Arrow centered at x=77, tip at cap-height of A (~y=38), close to "x" -->
-    <polygon points="77,38 68,51 86,51" fill="#1a3a1a"/>
-    <rect x="72" y="49" width="10" height="17" rx="1" fill="#1a3a1a"/>
+          fill="#ffffff">aV</text>
+    <!-- Up-arrow: tip at cap-height, shaft below -->
+    <polygon points="77,38 68,51 86,51" fill="#1a1e3a"/>
+    <rect x="72" y="49" width="10" height="17" rx="1" fill="#1a1e3a"/>
   </g>
 </svg>

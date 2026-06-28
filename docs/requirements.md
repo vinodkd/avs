@@ -1,4 +1,4 @@
-# AxEdUp v1 — Requirements
+# aVs v1 — Requirements
 
 ## Problem Statement
 
@@ -16,19 +16,20 @@ An action sports enthusiast who:
 
 **End-of-day editing session.** Not at the trailhead, not on a phone. The user is home, sitting at a computer, SD card available. Speed and low cognitive load are the priorities.
 
-**AxEdUp is a review-and-approve tool, not a video editor.** The computer does the editing; the user directs and approves. This distinction shapes every UI and workflow decision.
+**aVs is a review-and-approve tool, not a video editor.** The computer does the editing; the user directs and approves. This distinction shapes every UI and workflow decision.
 
 ---
 
 ## Build Phases
 
-### Phase 1 — CLI Pipeline (current)
-Prove the core pipeline works on real footage before building any UI.
-All interaction via command line. Review step uses a generated static HTML page.
+### Phase 1 — CLI + NiceGUI (current)
+Full pipeline (ingest → analyze → review → assemble → export) works end-to-end.
+NiceGUI desktop UI is the primary interface. CLI exists for power users;
+review step directs to the NiceGUI UI.
 
-### Phase 2 — NiceGUI + LLM
-Add a minimal Python-native browser UI (NiceGUI) on top of the same pipeline.
-Add text input via a local Ollama LLM for brief-based clip selection.
+### Phase 2 — LLM + Footage Map
+Add text brief input via a local Ollama LLM for guided clip selection.
+Add a footage-map screen (thumbnail strip + telemetry graph + scene markers).
 
 ### Phase 3 — Form Factor Decision
 Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter for cross-platform mobile, or another approach. The pipeline code is reusable regardless.
@@ -63,9 +64,10 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 
 ### FR-5: Clip Marking — Pass 2
 - Pre-marks candidate regions based on telemetry peaks, motion intensity, audio spikes
-- CLI: prints candidate table, user accepts/rejects interactively; or generates static HTML review page
-- Phase 2 UI: card-based review interface with accept/reject/trim per candidate
-- Output: ordered list of accepted clip regions with in/out timestamps
+- Also marks boring regions (low-motion, auto-rejected but rescuable) and dull gaps (unclaimed spans)
+- NiceGUI UI: timeline bar + thumbnail card review; click cycles in/out/skip; boring/dull cycle differently
+- CLI: `avs review <session_id>` gates on status and prints the NiceGUI URL
+- Output: ordered list of accepted clip regions with in/out timestamps written to marks table
 
 ### FR-6: Sport Profile
 - First-use asks one question: what sport?
@@ -86,7 +88,7 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 - Re-renders only the affected section where possible
 
 ### FR-9: Export
-- Exports to local folder (~/Videos/AxEdUp/)
+- Exports to local folder (~/Videos/aVs/)
 - 16:9 (YouTube) and/or 9:16 (Reels/Shorts/TikTok) in one pass
 - H.264 (libx264) encoding — no H.265, no GPU codecs in v1
 - File export only — no direct platform upload in v1
@@ -142,7 +144,7 @@ Once the workflow is validated, decide on the final UI: NiceGUI stays, Flutter f
 | React frontend | Same — NiceGUI covers the prototype UI need in pure Python |
 | Camera WiFi / BLE import | Per-brand SDK complexity; SD card covers the use case |
 | Direct upload to platforms | Platform OAuth complexity |
-| 360 footage (INSV) | Different pipeline — tracked as AxEdUp360 |
+| 360 footage (INSV) | Different pipeline — tracked as aVs360 |
 | Mobile builds | Desktop first; Flutter is the likely path when this becomes real |
 | Cloud / hosted backend | Not a goal |
 | Multi-day trip sessions | Session grouping complexity — v2 |

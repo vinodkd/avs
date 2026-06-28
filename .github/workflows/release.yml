@@ -44,7 +44,7 @@ jobs:
       - name: Upload AppImage to release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/AxEdUp-*.AppImage
+          files: dist/aVs-*.AppImage
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,7 +76,7 @@ jobs:
       - name: Upload installer to release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/AxEdUp-*-Setup.exe
+          files: dist/aVs-*-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -107,6 +107,6 @@ jobs:
       - name: Upload DMG to release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/AxEdUp-*.dmg
+          files: dist/aVs-*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

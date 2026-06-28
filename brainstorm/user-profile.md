@@ -1,8 +1,8 @@
-# AxEdUp: User Profile & Preferences Model
+# aVs: User Profile & Preferences Model
 
 ## The Cold-Start Problem, Solved
 
-First-time users have no history. Rather than showing a configuration screen, AxEdUp asks **one question**:
+First-time users have no history. Rather than showing a configuration screen, aVs asks **one question**:
 
 > "What sport do you film?"
 
@@ -164,4 +164,4 @@ The user can also explicitly switch: "use my ski settings for this one even thou
 
 When a user says "my usual preferences," the system resolves it against the current sport context in the user profile. The LLM receives the resolved preferences as structured context alongside the brief — it doesn't need to "know" the user, it just receives their profile as input.
 
-This also means the preferences are portable across AI services. If the user switches from Claude to ChatGPT, their profile travels with the AxEdUp daemon, not with the AI service.
+This also means the preferences are portable across AI services. If the user switches from Claude to ChatGPT, their profile travels with the aVs daemon, not with the AI service.
