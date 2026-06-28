@@ -32,17 +32,20 @@ from nicegui import app, ui
 from avs import config
 from avs.models.db import get_session as db_session
 from avs.models.schema import (
-    Clip, Export, Mark, MarkStatus, Profile, Session, SessionStatus, TelemetryPoint,
+    Clip, Export, MarkStatus, Profile, Session, SessionStatus, TelemetryPoint,
 )
 from avs.prefs import get_prefs
 from avs.presets.sports import display_name
-from avs.ui import state
+from avs.engine import marks as eng_marks
+from avs.engine import state
+from avs.engine.state import StageState
 from avs.ui.components.combine import CombinePanel
 from avs.ui.components.progress import bar_html as _bar_html, dot_html as _dot_html
 from avs.ui.components.scan_progress import ScanProgressStrip, PROXY_STAGES, SCAN_STAGES, STAGE_LABEL
-from avs.utils import fmt_duration as _fmt, fmt_timestamp as _tsfmt
-from avs.ui.state import StageState
+from avs.ui.components.mark_card import mark_cards_html as _mark_cards_html
+from avs.ui.components.timeline import timeline_html as _timeline_html, PICK_STYLE as _PICK_STYLE
 from avs.ui.layout import sidebar
+from avs.utils import fmt_duration as _fmt, fmt_timestamp as _tsfmt
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -196,88 +199,6 @@ def _media_url(path: Path) -> str:
     return _media_urls[key]
 
 
-# Visuals per review state: (bar/border colour, hatch background-image, badge icon)
-_PICK_STYLE = {
-    'in':   ('#2a7a2a', 'none', '✓'),
-    'out':  ('#7a2a2a',
-             'repeating-linear-gradient(-45deg,transparent,transparent 3px,'
-             'rgba(0,0,0,0.35) 3px,rgba(0,0,0,0.35) 4px)', '✗'),
-    'skip': ('#8a6a18',
-             'repeating-linear-gradient(45deg,transparent,transparent 4px,'
-             'rgba(0,0,0,0.3) 4px,rgba(0,0,0,0.3) 6px)', 'z'),
-    'dull': ('#a8541d', 'none', '–'),
-}
-
-
-def _timeline_html(mark_data: list, clip_info: list, statuses: dict | None = None) -> str:
-    statuses = statuses or {}
-    marks_by_clip: dict = {}
-    for mid, cid, in_s, out_s, _score, src in mark_data:
-        marks_by_clip.setdefault(cid, []).append((mid, in_s, out_s, src))
-    total_dur = sum(d for _, _, d in clip_info if d)
-    if   total_dur <= 60:   tick_iv = 10
-    elif total_dur <= 300:  tick_iv = 30
-    elif total_dur <= 1800: tick_iv = 60
-    else:                   tick_iv = 300
-    _BG = ['#1a1a1a', '#171717', '#1c1c1c', '#181818']
-    out = [
-        '<div style="display:flex;width:100%;height:100%;gap:2px;background:#0a0a0a;'
-        'padding:4px 8px;box-sizing:border-box;align-items:stretch;'
-        'border:1px solid #2a2a2a;border-radius:3px;overflow:hidden">'
-    ]
-    clip_start = 0.0
-    for i, (cid, fname, dur_s) in enumerate(clip_info):
-        if not dur_s: continue
-        label = (fname[:10] + '…') if len(fname) > 10 else fname
-        out.append(
-            f'<div style="flex:{max(dur_s,1.0):.1f};min-width:30px;position:relative;'
-            f'border-radius:2px;overflow:hidden;background:{_BG[i%4]}">'
-            f'<div style="position:absolute;top:0;left:0;right:0;height:13px;'
-            f'background:rgba(0,0,0,0.6);display:flex;align-items:center;padding:0 3px;z-index:1">'
-            f'<span style="font-size:0.47rem;color:#999;white-space:nowrap;overflow:hidden;'
-            f'text-overflow:ellipsis">{label} · {_fmt(int(dur_s))}</span></div>'
-        )
-        first_offset = tick_iv - (clip_start % tick_iv)
-        if first_offset >= tick_iv: first_offset = 0.0
-        t = first_offset if first_offset > 0 else tick_iv
-        while t < dur_s:
-            tp = t / dur_s * 100
-            tick_label = _tsfmt(int(clip_start + t))
-            out.append(
-                f'<div style="position:absolute;top:14px;left:{tp:.2f}%;width:1px;bottom:0;'
-                f'background:rgba(255,255,255,0.07);pointer-events:none">'
-                f'<span style="position:absolute;bottom:2px;left:2px;font-size:0.38rem;'
-                f'color:rgba(255,255,255,0.28);white-space:nowrap;pointer-events:none">'
-                f'{tick_label}</span></div>'
-            )
-            t += tick_iv
-        for mid, in_s, out_s, src in marks_by_clip.get(cid, []):
-            ip = in_s / dur_s * 100
-            wp = (out_s - in_s) / dur_s * 100
-            st = statuses.get(mid, 'in')
-            color, hatch, icon = _PICK_STYLE[st]
-            tip = f'{_tsfmt(in_s)}–{_tsfmt(out_s)} ({out_s-in_s:.1f}s)'
-            if src == 'audio_spike':
-                tip += ' — found by audio'
-            if st == 'skip':
-                tip += ' — flagged boring, click to include'
-            elif st == 'dull':
-                tip += ' — dull (unclassified), click to include'
-            out.append(
-                f'<div id="mark-{mid}" data-mid="{mid}" data-cid="{cid}" data-ins="{in_s}"'
-                f' style="position:absolute;top:15px;left:{ip:.2f}%;'
-                f'width:max({max(wp,2):.2f}%,40px);bottom:2px;background:{color};'
-                f'background-image:{hatch};'
-                f'border-radius:2px;cursor:pointer;transition:background 0.15s;'
-                f'display:flex;align-items:center;justify-content:center;overflow:hidden"'
-                f' onclick="avsMarkClick(this)" title="{tip}">'
-                f'<span class="mark-icon" style="font-size:0.45rem;color:rgba(255,255,255,0.85);'
-                f'pointer-events:none">{icon}</span></div>'
-            )
-        out.append('</div>')
-        clip_start += dur_s
-    out.append('</div>')
-    return ''.join(out)
 
 
 def _profile_info_html(sport: str) -> str:
@@ -333,9 +254,7 @@ def _profile_info_html(sport: str) -> str:
 def _show_exports(session_id: str, container) -> None:
     container.clear()
     with container:
-        with db_session() as db:
-            exports = (db.query(Export).filter(Export.session_id == session_id)
-                       .order_by(Export.exported_at.desc()).all())
+        exports = eng_sessions.list_exports(session_id)
         if not exports: return
         ui.label('Output files').style('color:#aaa;font-size:0.8rem;margin-bottom:0.3rem')
         for exp in exports:
@@ -437,17 +356,8 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
             clip_ids = [c.id for c in clips]
             clip_info = [(c.id, c.filename, c.duration_s) for c in clips]
             total_s   = sum(c.duration_s or 0 for c in clips)
-            marks_all = (
-                db.query(Mark)
-                .join(Clip, Mark.clip_id == Clip.id)
-                .filter(Mark.clip_id.in_(clip_ids))
-                .filter(Mark.status.in_([MarkStatus.CANDIDATE, MarkStatus.ACCEPTED,
-                                         MarkStatus.REJECTED, MarkStatus.BORING,
-                                         MarkStatus.DULL]))
-                .order_by(Clip.clip_order, Mark.in_s)
-                .all()
-            ) if clip_ids else []
-            mark_data    = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
+            marks_all = eng_marks.get_marks(session_id) if clip_ids else []
+            mark_data = [(m.id, m.clip_id, m.in_s, m.out_s, m.score or 0.0, m.source) for m in marks_all]
             from avs.processing.audio import clip_audio_spikes
             from avs.prefs import get_prefs as _get_prefs
             _spike_k = float(_get_prefs().get('audio_spike_k', 3.0))
@@ -569,10 +479,8 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
     # outside the static dirs; users can choose any output folder)
     export_url = None
     if not is_new and status == SessionStatus.EXPORTED:
-        with db_session() as db:
-            _last_exp = (db.query(Export).filter(Export.session_id == session_id)
-                         .order_by(Export.exported_at.desc()).first())
-            _last_exp_path = Path(_last_exp.filepath) if _last_exp else None
+        _last_exp = eng_sessions.get_last_export(session_id)
+        _last_exp_path = Path(_last_exp.filepath) if _last_exp else None
         if _last_exp_path and _last_exp_path.exists():
             export_url = _media_url(_last_exp_path)
 
@@ -1198,42 +1106,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         _update_action_bar_for_stage('pick')
 
     def _build_cards_html() -> str:
-        parts = ['<div style="display:flex;flex-wrap:wrap;gap:0.4rem">']
-        for mid, cid, in_s, out_s, score, source in mark_data:
-            thumb = config.THUMB_DIR / cid / f'mark_{mid}.jpg'
-            img_part = (
-                f'<img src="/thumbs/{cid}/mark_{mid}.jpg" style="width:100%;height:60px;object-fit:cover;display:block">'
-                if thumb.exists() else
-                '<div style="width:100%;height:60px;background:#111"></div>'
-            )
-            ts_label = f'{_tsfmt(in_s)}–{_tsfmt(out_s)}'
-            st = _statuses.get(mid, 'in')
-            bc, _, bi = _PICK_STYLE[st]
-            spikes = _audio_spikes.get(cid, [])
-            has_audio = (source == 'audio_spike' or
-                         any(in_s <= t <= out_s for t in spikes))
-            hint = (' title="Flagged boring — click to include"' if st == 'skip' else
-                    ' title="Dull (unclassified) — click to include"' if st == 'dull' else
-                    ' title="Found by audio"' if has_audio else '')
-            mic = ('<span class="material-icons" style="font-size:0.72rem;color:#6a9ab8;'
-                   'vertical-align:text-bottom;margin-left:2px">mic</span>'
-                   if has_audio else '')
-            parts.append(
-                f'<div id="card-{mid}" onclick="avsCardClick(\'{mid}\',\'{cid}\',{in_s})"{hint} '
-                f'style="width:110px;background:#1a1a1a;border-radius:4px;overflow:hidden;'
-                f'cursor:pointer;border:2px solid {bc};flex-shrink:0;position:relative">'
-                f'{img_part}'
-                f'<div id="card-badge-{mid}" style="position:absolute;top:3px;right:3px;'
-                f'width:16px;height:16px;border-radius:50%;background:{bc};'
-                f'display:flex;align-items:center;justify-content:center;'
-                f'font-size:0.5rem;color:#fff;font-weight:bold;pointer-events:none">{bi}</div>'
-                f'<div style="padding:0.2rem 0.35rem">'
-                f'<div style="color:#888;font-size:0.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{ts_label}{mic}</div>'
-                f'<div style="color:#555;font-size:0.58rem">{score:.2f}</div>'
-                f'</div></div>'
-            )
-        parts.append('</div>')
-        return ''.join(parts)
+        return _mark_cards_html(mark_data, _statuses, _audio_spikes)
 
     def _init_pick_js() -> None:
         # Decisions are 'in' | 'out' | 'skip' | 'dull'. System-flagged marks
@@ -1377,16 +1250,10 @@ window.avsCardClick = function(mid, cid, ins) {{
     async def _save_and_combine() -> None:
         raw = await ui.run_javascript('JSON.stringify(window.avs_decisions || {})')
         js_dec = json.loads(raw)
-        _to_status = {'in': MarkStatus.ACCEPTED, 'out': MarkStatus.REJECTED,
-                      'skip': MarkStatus.BORING, 'dull': MarkStatus.DULL}
-        counts = {'in': 0, 'out': 0, 'skip': 0, 'dull': 0}
-        with db_session() as db2:
-            for mid2, st in js_dec.items():
-                m2 = db2.query(Mark).filter(Mark.id == mid2).first()
-                if m2 and st in _to_status:
-                    m2.status = _to_status[st]
-                    counts[st] += 1
-        _statuses.update({m: s for m, s in js_dec.items() if s in _to_status})
+        eng_marks.set_mark_statuses(js_dec)
+        _valid = {'in', 'out', 'skip', 'dull'}
+        _statuses.update({m: s for m, s in js_dec.items() if s in _valid})
+        counts = {s: sum(1 for v in js_dec.values() if v == s) for s in _valid}
         msg = f'Saved: {counts["in"]} in, {counts["out"]} out'
         if counts['skip']:
             msg += f', {counts["skip"]} skipped'
@@ -1562,13 +1429,7 @@ window.avsCardClick = function(mid, cid, ins) {{
         if th and th.done:
             if 'highlights' in dot_refs: dot_refs['highlights'].set_content(_dot_html('done'))
             _set_act('highlights', th.elapsed, persist=True)
-            n_marks = 0
-            with db_session() as _db2:
-                if clip_ids:
-                    n_marks = _db2.query(Mark).join(Clip, Mark.clip_id == Clip.id).filter(
-                        Mark.clip_id.in_(clip_ids),
-                        Mark.status.notin_([MarkStatus.BORING, MarkStatus.DULL]),
-                    ).count()
+            n_marks = eng_marks.count_actionable_marks(session_id)
             if 'highlights' in count_refs and n_marks:
                 count_refs['highlights'].set_text(str(n_marks))
             if 'pick' in dot_refs: dot_refs['pick'].set_content(_dot_html('active'))

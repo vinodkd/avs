@@ -53,6 +53,31 @@ def set_stage_time(session_id: str, stage: str, actual_s: float) -> None:
             setattr(s, col, actual_s)
 
 
+def list_exports(session_id: str) -> list:
+    """Return all exports for a session, newest first."""
+    from avs.models.schema import Export
+    with _db() as db:
+        rows = (db.query(Export)
+                .filter(Export.session_id == session_id)
+                .order_by(Export.exported_at.desc())
+                .all())
+        db.expunge_all()
+        return rows
+
+
+def get_last_export(session_id: str):
+    """Return the most recent Export for a session, or None."""
+    from avs.models.schema import Export
+    with _db() as db:
+        row = (db.query(Export)
+               .filter(Export.session_id == session_id)
+               .order_by(Export.exported_at.desc())
+               .first())
+        if row:
+            db.expunge(row)
+        return row
+
+
 def delete_session(session_id: str) -> None:
     """Remove all DB rows and cached files for a session."""
     with _db() as db:
