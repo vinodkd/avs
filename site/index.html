@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>aVs — Action Camera Footage Editor</title>
+  <title>aVs — action video share</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- ── Banner ─────────────────────────────────────────────────────────── -->
   <!-- ── Header ─────────────────────────────────────────────────────────── -->
   <header>
     <div class="container header-inner">
@@ -30,26 +29,24 @@
 
   <!-- ── Hero ───────────────────────────────────────────────────────────── -->
   <section class="hero">
-    <div class="container hero-inner">
-      <div class="hero-copy">
-        <h1>From SD card to shareable video<br>before you go to sleep.</h1>
-        <p class="tagline">
-          aVs analyzes your action camera footage, finds the interesting moments,
-          and assembles a finished video — no editing skills required.
-        </p>
-        <p class="disclaimer">This is an AI-generated app. It is useful, intended to be safe and work offline, but not exhaustively tested. YMMV.</p>
-        <div class="download-row">
-          <a class="btn btn-primary" href="https://github.com/vinodkd/avs/releases/latest">
-            ↓ Download
-          </a>
-          <a class="btn btn-secondary" href="https://github.com/vinodkd/avs">
-            View on GitHub
-          </a>
+    <div class="container">
+      <h1>From SD card to shareable video quickly</h1>
+      <p class="tagline">Pick a recording, aVs finds the best moments and trims it down, ready to share. Editing optional.</p>
+      <img src="avs-screenshot-blue.png" alt="aVs app screenshot" class="hero-gif">
+      <div class="hero-body">
+        <div class="hero-copy">
+          <div class="download-row">
+            <a class="btn btn-primary" href="https://github.com/vinodkd/avs/releases/latest">
+              ↓ Download
+            </a>
+            <a class="btn btn-secondary" href="https://github.com/vinodkd/avs">
+              View on GitHub
+            </a>
+          </div>
+          <p class="platform-note">Linux · Windows · macOS</p>
+          <p class="feature-text">No GPU required · Works fully offline · No LLMs or cloud</p>
+          <p class="disclaimer">Built with AI. Useful, but not exhaustively tested. YMMV.</p>
         </div>
-        <p class="platform-note">Linux · Windows · macOS</p>
-      </div>
-      <div class="hero-demo">
-        <img src="avs-screenshot.png" alt="aVs app screenshot" class="hero-gif">
       </div>
     </div>
   </section>
@@ -62,79 +59,68 @@
         <li>
           <span class="step-num">1</span>
           <div>
-            <strong>Input videos</strong>
-            <p>Point it at an SD card or folder. It finds your clips and extracts metadata.</p>
+            <strong><span class="actor-you">You</span> point it at an SD card or folder</strong>
+            <p>aVs scans for video files and reads clip metadata — duration, resolution, timestamps.</p>
           </div>
         </li>
         <li>
           <span class="step-num">2</span>
           <div>
-            <strong>Creating working copy</strong>
-            <p>Generates a low-resolution proxy for fast processing — originals are never touched.</p>
+            <strong><span class="actor-avs">aVs</span> generates a 480p working copy of each clip</strong>
+            <p>All analysis runs on the proxy. Originals are never modified.</p>
           </div>
         </li>
         <li>
           <span class="step-num">3</span>
           <div>
-            <strong>Detecting scenes…</strong>
-            <p>Optical flow analysis finds scene changes and scores each segment by motion intensity. Sustained low-motion sections are flagged as dull and skipped by default.</p>
+            <strong><span class="actor-avs">aVs</span> scans each clip for scene cuts and motion intensity</strong>
+            <p>Optical flow scores every frame. Sustained low-motion sections are flagged as dull.</p>
           </div>
         </li>
         <li>
           <span class="step-num">4</span>
           <div>
-            <strong>Finding clips…</strong>
-            <p>Activity peaks are identified using motion intensity and audio spikes — crowd noise, impacts, and loud moments boost a clip's score.</p>
+            <strong><span class="actor-avs">aVs</span> identifies the best moments</strong>
+            <p>Motion peaks and audio spikes — impacts, crowd noise, loud moments — boost a clip's score.</p>
           </div>
         </li>
         <li>
           <span class="step-num">5</span>
           <div>
-            <strong>Select clips</strong>
-            <p>Browse clips sorted by activity score. Dull sections are shown separately and can be rescued if they contain something worth keeping.</p>
+            <strong><span class="actor-you">You</span> review the ranked clips</strong>
+            <p>Browse thumbnail cards sorted by activity score. Click to include or skip. Rescue anything worth keeping from the dull pile.</p>
           </div>
         </li>
         <li>
           <span class="step-num">6</span>
           <div>
-            <strong>Combining clips…</strong>
-            <p>Selected clips are cut, color-graded, and scored with music from a sport preset. A preview renders automatically.</p>
+            <strong><span class="actor-you">You</span> trigger combine — <span class="actor-avs">aVs</span> does the cutting</strong>
+            <p>Selected clips are trimmed, color-graded from your sport preset, and scored with music. A preview renders automatically.</p>
           </div>
         </li>
         <li>
           <span class="step-num">7</span>
           <div>
-            <strong>Exporting video…</strong>
-            <p>Final H.264 encode in 16:9, 9:16, or 1:1 — ready to share.</p>
+            <strong><span class="actor-you">You</span> export when the preview looks right</strong>
+            <p>aVs renders a final H.264 file in 16:9, 9:16, or 1:1 — ready to share.</p>
           </div>
         </li>
       </ol>
-      <p class="note">No timeline scrubbing. No effects panels. The computer edits; you approve.</p>
     </div>
   </section>
 
-  <!-- ── Cameras ────────────────────────────────────────────────────────── -->
-  <section class="cameras">
+  <!-- ── Supported formats ─────────────────────────────────────────────── -->
+  <section class="formats">
     <div class="container">
-      <h2>Supported cameras</h2>
-      <table>
-        <thead>
-          <tr><th>Camera</th><th>Video</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>GoPro Hero 5+</td><td>MP4</td></tr>
-          <tr><td>DJI Osmo Action</td><td>MP4</td></tr>
-          <tr><td>Insta360</td><td>MP4 / MOV</td></tr>
-          <tr><td>Generic action cams</td><td>MP4 / MOV</td></tr>
-        </tbody>
-      </table>
+      <h2>Supported formats</h2>
+      <p>aVs reads <strong>MP4</strong> files from action cameras. RAW video and 360° formats are not yet supported.</p>
     </div>
   </section>
 
   <!-- ── Roadmap ───────────────────────────────────────────────────────── -->
   <section id="roadmap" class="roadmap">
     <div class="container">
-      <h2>Coming up</h2>
+      <h2>Coming up <a class="roadmap-link" href="https://github.com/vinodkd/avs/blob/mainline/docs/backlog.md">full backlog on GitHub →</a></h2>
       <div class="roadmap-grid">
         <div class="roadmap-card">
           <strong>Telemetry scoring</strong>
@@ -142,13 +128,13 @@
         </div>
         <div class="roadmap-card">
           <strong>Title cards</strong>
-          <p>Add opening titles, location tags, and end cards to the assembled video.</p>
+          <p>Opening titles, location tags, and end cards added to the assembled video.</p>
         </div>
         <div class="roadmap-card">
           <strong>Direct upload</strong>
           <p>Publish to YouTube, Instagram, and other platforms without leaving the app.</p>
         </div>
-        <div class="roadmap-card roadmap-card--future">
+        <div class="roadmap-card">
           <strong>360° video</strong>
           <p>Full spherical footage support — projection, reframing, and export. Way in the future.</p>
         </div>
@@ -208,10 +194,8 @@
         <a href="https://github.com/vinodkd/avs/releases">Releases</a> ·
         <a href="https://github.com/vinodkd/avs/issues">Issues</a>
       </p>
-      <p class="footer-note">No GPU required. All processing runs on CPU. Works offline.</p>
     </div>
   </footer>
 
 </body>
 </html>
-
