@@ -11,9 +11,9 @@ aVs reads files from an SD card or local folder, analyzes them with computer vis
 ## How it works
 
 1. **Load** — point it at an SD card or folder; it finds your clips and extracts metadata
-2. **Analyze** — generates proxy files, detects scenes, computes motion intensity from optical flow; GoPro/DJI telemetry (speed, GPS) used when available
+2. **Analyze** — generates proxy files, detects scenes, computes motion intensity from optical flow and audio energy
 3. **Review** — browse clips as thumbnails rated by activity score; mark which ones to include
-4. **Assemble** — combines selected clips, applies a color grade and music from a sport preset, renders a preview
+4. **Assemble** — combines selected clips, applies a color grade from a sport preset, renders a preview
 5. **Export** — final H.264 encode in one or more aspect ratios (16:9, 9:16, 1:1)
 
 No timeline scrubbing, no effects panels, no keyframing. The computer edits; you approve.
@@ -48,19 +48,20 @@ Download `aVs-<version>.dmg` from [Releases](https://github.com/vinodkd/avs/rele
 
 ## Supported cameras
 
-| Camera | Video | Telemetry |
-|---|---|---|
-| GoPro (Hero 5+) | MP4 | GPMF (speed, GPS, accelerometer) |
-| DJI Osmo Action | MP4 | SRT sidecar (speed, GPS, altitude) |
-| Insta360 | MP4/MOV | Motion analysis only |
-| Generic action cams | MP4/MOV | Motion analysis only |
+Any action camera that records standard MP4 or MOV files works. aVs reads the video, builds a proxy, and runs motion analysis regardless of brand.
+
+| Camera | Status |
+|---|---|
+| Any MP4/MOV camera | Motion analysis, audio scoring, scene detection |
+| GoPro | Recognised at ingest; GPMF telemetry parsing not yet implemented |
+| DJI | Recognised at ingest; SRT sidecar parsing not yet implemented |
+| Insta360 | Standard MP4 clips work; 360° format (.insv) not yet supported |
 
 ---
 
 ## CLI usage
 
-For power users who prefer the terminal. The review step requires the NiceGUI UI
-(launch with `avs ui`); all other steps work entirely from the command line.
+For power users who prefer the terminal. The CLI lags behind the UI in capability — review and combine are best done via the UI. Use `avs ui` to launch it.
 
 ```bash
 # 1. Import footage from an SD card or folder
@@ -84,7 +85,6 @@ avs assemble <session_id> --source proxy  # only full-scan marks
 
 # 5. Refine and re-assemble
 avs refine <session_id> --grade cinematic
-avs refine <session_id> --swap-music
 avs refine <session_id> --remove <mark_id>
 avs refine <session_id> --no-overlay
 
@@ -139,4 +139,4 @@ No GPU required. All processing runs on CPU.
 
 ## License
 
-TBD
+[AGPLv3](LICENSE)
