@@ -104,10 +104,12 @@ def has_motion_data(clip_ids: list[str]) -> bool:
 
 
 def list_sports() -> list[str]:
-    """Return all sport names from profiles, alphabetically."""
+    """Return all sport names: DEFAULT_PROFILES built-ins plus any custom DB entries."""
     from avs.models.schema import Profile
+    from avs.presets.sports import DEFAULT_PROFILES
     with _db() as db:
-        return [p.sport for p in db.query(Profile).order_by(Profile.sport).all()]
+        db_sports = {p.sport for p in db.query(Profile).all()}
+    return sorted(set(DEFAULT_PROFILES.keys()) | db_sports)
 
 
 def get_profile_info(sport: str) -> dict | None:

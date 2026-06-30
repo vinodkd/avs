@@ -4,11 +4,7 @@ from typing import Callable
 
 from nicegui import ui
 
-from avs.presets.sports import DEFAULT_PROFILES
-
-
-def _display_name(sport: str) -> str:
-    return sport.replace('_', ' ').title()
+from avs.presets.sports import DEFAULT_PROFILES, display_name as _display_name
 
 
 def new_session_controls(
