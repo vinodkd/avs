@@ -96,8 +96,9 @@ _CSS = """
   display:flex;align-items:center;gap:0.45rem;flex-shrink:0;
   white-space:nowrap;overflow:hidden
 }
-.ax2-section.active{color:#fff;border-left:3px solid #7a8fd8;padding-left:calc(0.7rem - 3px)}
-.ax2-section.done{color:#7a8fd8}
+.ax2-section.active{color:#fff;border-left:3px solid #7a8fd8;padding-left:calc(0.7rem - 3px);cursor:pointer}
+.ax2-section.done{color:#7a8fd8;cursor:pointer}
+.ax2-section.done:hover,.ax2-section.active:hover{background:rgba(255,255,255,0.03)}
 .ax2-section.future{color:#333;font-style:italic}
 
 /* Sub-rows (Create working copy, Detect scenes, etc.) */
@@ -424,7 +425,7 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
     elif post_analysis:
         if status == SessionStatus.EXPORTED:
             initial_stage = 'export'
-        elif status == SessionStatus.ASSEMBLED or preview_path.exists():
+        elif status == SessionStatus.ASSEMBLED:
             initial_stage = 'combine'
         else:
             initial_stage = 'pick'
@@ -944,19 +945,72 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         if player_tag_ref[0]:
             player_tag_ref[0].set_text(text)
 
+    def _live_stage_st(sid: str) -> str:
+        """Stage state for nav: combines live task state with pipeline-head gating.
+
+        Two layers of blocking:
+        1. Running layer — while a pipeline stage is active, every stage after
+           it returns 'pending' regardless of DB state.
+        2. Head layer — when nothing is running, every stage whose index exceeds
+           _pipeline_head[0] returns 'pending'.  _pipeline_head is advanced only
+           when the pipeline actually completes each step; combine/export page
+           reloads re-initialize it from initial_stage.
+
+        The single guard `if _live_stage_st(sid) == 'pending': return` in
+        _nav_to_stage handles all blocking.
+        """
+        _proxy_t = state.get_task(f'{session_id}_proxy')
+        _proxy_running = bool(_proxy_t and not _proxy_t.done)
+
+        _scan_t = state.get_task(f'{session_id}_scan')
+        _hl_t   = state.get_task(f'{session_id}_highlights')
+        # _scan_started[0] stays True after success, so gate on task state too
+        _scan_running = _scan_started[0] and (
+            (_scan_t is None or not _scan_t.done) or
+            (_hl_t  is None or not _hl_t.done)
+        )
+
+        _asm_t = state.get_task(f'assemble_{session_id}')
+        _combine_running = bool(_asm_t and not _asm_t.done)
+
+        _exp_t = state.get_task(f'export_{session_id}')
+        _export_running = bool(_exp_t and not _exp_t.done)
+
+        # While any pipeline stage is running, lock ALL nav except the active stage.
+        # This prevents navigating away during long operations and avoids the
+        # split-brain state where two exports run simultaneously.
+        if _proxy_running:
+            return 'running' if sid == 'proxy' else 'pending'
+
+        if _scan_running:
+            return 'running' if sid == 'scan' else 'pending'
+
+        if _combine_running:
+            return 'running' if sid == 'combine' else 'pending'
+
+        if _export_running:
+            return 'running' if sid == 'export' else 'pending'
+
+        sid_idx = _STAGE_ORDER.index(sid) if sid in _STAGE_ORDER else -1
+
+        # Nothing running — enforce the pipeline head
+        if sid_idx > _pipeline_head[0]:
+            return 'pending'
+
+        return _stage_st(sid)
+
     def _set_active_row(stage_id: str) -> None:
         """Highlight one stage-table row as active, clear all others."""
-        # Sub-row stages
         sub_stages = ('proxy', 'scan', 'highlights', 'pick', 'combine')
         sec_stages = ('input', 'export')
         for sid, el in row_refs.items():
+            st = _live_stage_st(sid)
             if sid in sub_stages:
-                base = f'ax2-sub {_stage_st(sid)}'
-                el.classes(replace=base + (' active' if sid == stage_id else ''))
+                el.classes(replace=f'ax2-sub {st}' + (' active' if sid == stage_id else ''))
             elif sid in sec_stages:
-                st = _stage_st(sid)
-                base = f'ax2-section {st}'
-                el.classes(replace=base + (' active' if sid == stage_id else ''))
+                el.classes(replace=f'ax2-section {st}' + (' active' if sid == stage_id else ''))
+            if sid in dot_refs:
+                dot_refs[sid].set_content(_dot_html(st))
 
     def _update_action_bar_for_stage(stage: str) -> None:
         if is_new: return
@@ -1029,9 +1083,10 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
                 _ab_status.set_text('')
         elif stage == 'combine':
             assemble_task = state.get_task(f'assemble_{session_id}')
+            _combined = status in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED)
             if assemble_task and not assemble_task.done:
                 _set_next_btn('Combining…', False, None)
-            elif preview_path.exists():
+            elif _combined and preview_path.exists():
                 _set_next_btn('Continue to export →', True, lambda: _update_action_bar_for_stage('export'))
             else:
                 _set_next_btn('Combine clips →', bool(mark_data), _run_combine)
@@ -1069,6 +1124,36 @@ def _session_page_body(session_id: str, _prefs: dict) -> None:
         rp = review_panel_ref[0]
         if rp: rp.classes(remove='visible')
         _update_action_bar_for_stage('pick')
+
+    # Pipeline stage order — used by _live_stage_st and _pipeline_head tracking
+    _STAGE_ORDER = ('input', 'proxy', 'scan', 'highlights', 'pick', 'combine', 'export')
+    # Map initial_stage → the furthest index accessible in the current pipeline run.
+    # 'combine' and 'export' both yield 6 because after combine the page reloads
+    # with initial_stage='combine', and export should be accessible at that point.
+    _HEAD_INIT = {
+        'input': 0, 'proxy': 1, 'scan': 2, 'highlights': 3,
+        'pick': 4, 'combine': 6, 'export': 6,
+    }
+    _pipeline_head = [_HEAD_INIT.get(initial_stage, 0)]
+
+    def _nav_to_stage(sid: str) -> None:
+        """Jump the right-panel view to any non-pending stage via left-nav click.
+
+        Blocking is handled entirely by _live_stage_st: any stage downstream of
+        the pipeline head (or a running stage) returns 'pending', so the first
+        guard handles all cases.
+        """
+        if _live_stage_st(sid) == 'pending':
+            return
+        if review_mode[0] and sid != 'pick':
+            review_mode[0] = False
+            ui.run_javascript("document.querySelector('.ax2-table').classList.remove('ax2-review')")
+            rp = review_panel_ref[0]
+            if rp: rp.classes(remove='visible')
+        if sid == 'pick' and post_analysis and mark_data:
+            _enter_review()
+        else:
+            _update_action_bar_for_stage(sid)
 
     def _build_cards_html() -> str:
         return _mark_cards_html(mark_data, _statuses, _audio_spikes)
@@ -1185,6 +1270,7 @@ window.avsCardClick = function(mid, cid, ins) {{
                     cancel_btn_ref[0].set_visibility(False)
                 return
             eng_sessions.set_session_status(session_id, SessionStatus.READY)
+            _pipeline_head[0] = _STAGE_ORDER.index('pick')  # scan+highlights done; pick is next
             state.start_task(f'{session_id}_thumbnails')
             engine.run_thumbnails(session_id, on_progress=_on_progress, on_done=_on_thumbnails_done)
 
@@ -1203,6 +1289,7 @@ window.avsCardClick = function(mid, cid, ins) {{
 
         engine.run_scan(session_id, method, on_progress=_on_progress, on_done=_on_scan_done)
         _scan_started[0] = True
+        _pipeline_head[0] = _STAGE_ORDER.index('scan')   # block everything past scan
         if scan_strip:
             scan_strip.ensure_bars_for_scan(method)
         if _timer_ref[0] is not None:
@@ -1225,6 +1312,7 @@ window.avsCardClick = function(mid, cid, ins) {{
             msg += f', {counts["dull"]} dull'
         ui.notify(msg, type='positive')
         _exit_review()
+        _pipeline_head[0] = _STAGE_ORDER.index('combine')  # picks saved; combine is next
         _update_action_bar_for_stage('combine')
 
     def _combine_callbacks():
@@ -1316,6 +1404,13 @@ window.avsCardClick = function(mid, cid, ins) {{
         1.0, _elapsed_tick,
         active=not is_new and status != SessionStatus.EXPORTED,
     )
+
+    # ── Left-nav click handlers ────────────────────────────────────────────────
+    if not is_new:
+        def _make_nav(sid: str):
+            return lambda: _nav_to_stage(sid)
+        for _sid, _row in row_refs.items():
+            _row.on('click', _make_nav(_sid))
 
     # ── Initial render ─────────────────────────────────────────────────────────
     if not is_new:

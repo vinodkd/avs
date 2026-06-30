@@ -56,13 +56,13 @@ def export_session(
             raise ValueError(f"Session {session_id} not found")
         if session.status not in (SessionStatus.ASSEMBLED, SessionStatus.EXPORTED):
             raise ValueError(
-                f"Session is not assembled yet (status: {session.status}). "
-                "Run 'assemble' first."
+                f"Session is not combined yet (status: {session.status}). "
+                "Run combine first."
             )
 
     preview_path = config.PREVIEW_DIR / f"{session_id}_preview.mp4"
     if not preview_path.exists():
-        raise ValueError(f"Preview not found at {preview_path}. Run 'assemble' first.")
+        raise ValueError(f"Preview not found at {preview_path}. Run combine first.")
 
     date_str = datetime.now().strftime("%Y-%m-%d")
     sport = session.sport or "video"

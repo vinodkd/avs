@@ -217,28 +217,23 @@ def run_motion_scan(
                 c = db.query(Clip).filter(Clip.id == clip.id).first()
                 c.proxy_path = str(proxy_path); c.scene_count = len(scenes)
         else:
+            _notify(clip.id, "motion", "running", f"{clip.filename}: optical flow (all frames)", None, None)
+            def _mprx(done: int, total: int, _cid: str = clip.id) -> None:
+                _notify(_cid, "motion", "progress", "Comparing", done, total)
+            motion_points = _compute_motion(proxy_path, on_progress=_mprx, cancel_token=cancel_token)
+            _notify(clip.id, "motion", "done", f"{clip.filename}: {len(motion_points)} samples", None, None)
+            peak_motion = max((m for _, m in motion_points), default=None)
             with get_session() as db:
-                existing = db.query(TelemetryPoint).filter(
+                db.query(TelemetryPoint).filter(
                     TelemetryPoint.clip_id == clip.id,
                     TelemetryPoint.motion_intensity.isnot(None),
-                ).count()
-            if existing:
-                _notify(clip.id, "motion", "skipped",
-                        f"{clip.filename}: {existing} flow samples exist", None, None)
-            else:
-                _notify(clip.id, "motion", "running", f"{clip.filename}: optical flow (all frames)", None, None)
-                def _mprx(done: int, total: int, _cid: str = clip.id) -> None:
-                    _notify(_cid, "motion", "progress", "Comparing", done, total)
-                motion_points = _compute_motion(proxy_path, on_progress=_mprx, cancel_token=cancel_token)
-                _notify(clip.id, "motion", "done", f"{clip.filename}: {len(motion_points)} samples", None, None)
-                peak_motion = max((m for _, m in motion_points), default=None)
-                with get_session() as db:
-                    c = db.query(Clip).filter(Clip.id == clip.id).first()
-                    c.proxy_path = str(proxy_path); c.scene_count = len(scenes); c.peak_motion = peak_motion
-                    db.add_all([
-                        TelemetryPoint(clip_id=clip.id, timestamp_s=ts, motion_intensity=intensity)
-                        for ts, intensity in motion_points
-                    ])
+                ).delete()
+                c = db.query(Clip).filter(Clip.id == clip.id).first()
+                c.proxy_path = str(proxy_path); c.scene_count = len(scenes); c.peak_motion = peak_motion
+                db.add_all([
+                    TelemetryPoint(clip_id=clip.id, timestamp_s=ts, motion_intensity=intensity)
+                    for ts, intensity in motion_points
+                ])
         _notify(None, 'session', 'progress', None, i + 1, len(clips))
     _notify(None, 'session', 'done', "Scan complete.", None, None)
 

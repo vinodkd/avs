@@ -6,14 +6,12 @@ Source of truth for priorities and pending work. Struck-through items are commit
 
 ## Current priorities (in order)
 
-1. **Session UI usability** — show source filename everywhere; step navigation
-   from left nav (jump to completed steps without re-running).
+1. **Step navigation from left nav** — jump to completed steps without re-running.
    (→ Session UI)
-2. **Analysis robustness** — persist `audio_boosted` flag on `Mark`; crash/restart
-   safety for partial proxy and scan builds.
-   (→ Analysis pipeline)
-3. **Remaining audio scoring** — WebRTC VAD for speech detection + score boost.
-   (→ Analysis pipeline → Audio scoring)
+2. **Scene-aware clip model** — fix clip boundary overlap; variable-length non-overlapping clips anchored to PySceneDetect boundaries.
+   (→ Assembly pipeline)
+3. **Assembly cleanup** — delete `segments/encoded/` after export; `avs clean` command.
+   (→ Assembly pipeline)
 
 Done: v0.1.5 released 2026-06-14 — audio scoring (RMS + spike detection),
 dull/boring-region detection, settings screen, grade swatches, sport profile
@@ -60,10 +58,7 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
 
 ## Session UI
 
-- [ ] **Show source filename everywhere** — the source video filename should be visible
-  on the home page session list and in the session page header at all times. Currently
-  neither surface shows it, making it ambiguous which file is being processed when
-  multiple sessions exist. Noted 2026-06-14.
+- [x] ~~**Show source filename everywhere**~~ — Shipped: source filename visible on home page session list and session page header.
 
 - [ ] **Home page: exported output duration column** — for sessions with `exported` status,
   show the final output duration alongside the source duration in the session list.
