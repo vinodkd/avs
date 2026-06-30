@@ -26,7 +26,19 @@ def _run_migrations() -> None:
     command.upgrade(cfg, "head")
 
 
+def _set_wm_class() -> None:
+    if sys.platform != 'linux':
+        return
+    try:
+        from gi.repository import GLib
+        GLib.set_prgname('avs')
+        GLib.set_application_name('aVs')
+    except Exception:
+        pass
+
+
 def main() -> None:
+    _set_wm_class()
     _run_migrations()
 
     from avs import __version__
