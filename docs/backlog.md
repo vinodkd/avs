@@ -19,6 +19,9 @@ Source of truth for priorities and pending work. Struck-through items are commit
 Done: v0.1.5 released 2026-06-14 — audio scoring (RMS + spike detection),
 dull/boring-region detection, settings screen, grade swatches, sport profile
 popover, superseded screens removed, GH Actions bumped to Node 24.
+Done: v0.1.7 released 2026-06-29 — nav lockout during running stages, re-scan
+always re-runs optical flow, assembly cleanup (segments+preview deleted after
+export, avs clean command), sport dropdown restored (display names + full list).
 Shipped 2026-06-29: step nav locking (forward-pass pipeline model, nav disabled
 during any running stage), scene-aware clip model (score-proportional windows
 clamped to PySceneDetect boundaries, no overlap by construction), re-scan always
