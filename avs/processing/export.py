@@ -102,6 +102,10 @@ def export_session(
         output_paths.append(dest)
         _log(f"  {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
 
+    if output_paths:
+        from avs.engine.sessions import clean_session_cache
+        clean_session_cache(session_id)
+
     return output_paths
 
 

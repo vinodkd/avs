@@ -146,6 +146,49 @@ def default_output_dir() -> Path:
     return config.OUTPUT_DIR
 
 
+def clean_session_cache(session_id: str, *, include_proxies: bool = False) -> dict[str, int]:
+    """Delete cached pipeline files for a session without touching DB rows.
+
+    Always removes: raw cut segments, grade-baked encoded segments, and preview.
+    Pass include_proxies=True to also remove proxy videos and thumbnails.
+    Returns counts: {'segments': N, 'encoded': N, 'preview': N, 'proxies': N}.
+    """
+    with _db() as db:
+        clips = db.query(Clip).filter(Clip.session_id == session_id).all()
+        clip_ids = [c.id for c in clips]
+        mark_ids = [
+            m.id
+            for c in clips
+            for m in db.query(Mark).filter(Mark.clip_id == c.id).all()
+        ]
+
+    counts = {'segments': 0, 'encoded': 0, 'preview': 0, 'proxies': 0}
+    for mid in mark_ids:
+        p = config.SEGMENT_DIR / f'{mid}.mp4'
+        if p.exists():
+            p.unlink()
+            counts['segments'] += 1
+        for enc in (config.SEGMENT_DIR / 'encoded').glob(f'{mid}_*.mp4'):
+            enc.unlink(missing_ok=True)
+            counts['encoded'] += 1
+
+    preview = config.PREVIEW_DIR / f'{session_id}_preview.mp4'
+    if preview.exists():
+        preview.unlink()
+        counts['preview'] = 1
+
+    if include_proxies:
+        for cid in clip_ids:
+            p = config.PROXY_DIR / f'{cid}.mp4'
+            if p.exists():
+                p.unlink()
+                counts['proxies'] += 1
+            shutil.rmtree(config.THUMB_DIR / cid, ignore_errors=True)
+            shutil.rmtree(config.JPEG_FRAMES_DIR / cid, ignore_errors=True)
+
+    return counts
+
+
 def delete_session(session_id: str) -> None:
     """Remove all DB rows and cached files for a session."""
     with _db() as db:

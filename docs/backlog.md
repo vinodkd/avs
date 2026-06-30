@@ -6,16 +6,23 @@ Source of truth for priorities and pending work. Struck-through items are commit
 
 ## Current priorities (in order)
 
-1. **Step navigation from left nav** — jump to completed steps without re-running.
+1. **UI instability during assembly** — throttle rapid-fire progress callbacks from
+   parallel workers; marshal UI updates to main thread.
+   (→ Analysis pipeline)
+2. **Home page: exported output duration column** — show final output duration for
+   exported sessions. `Export.duration_s` already stored.
    (→ Session UI)
-2. **Scene-aware clip model** — fix clip boundary overlap; variable-length non-overlapping clips anchored to PySceneDetect boundaries.
-   (→ Assembly pipeline)
-3. **Assembly cleanup** — delete `segments/encoded/` after export; `avs clean` command.
-   (→ Assembly pipeline)
+3. **Persist `audio_boosted` flag on Mark** — currently re-queried at render time;
+   add column to marks, set in `_detect_clip_peaks`.
+   (→ Analysis pipeline)
 
 Done: v0.1.5 released 2026-06-14 — audio scoring (RMS + spike detection),
 dull/boring-region detection, settings screen, grade swatches, sport profile
 popover, superseded screens removed, GH Actions bumped to Node 24.
+Shipped 2026-06-29: step nav locking (forward-pass pipeline model, nav disabled
+during any running stage), scene-aware clip model (score-proportional windows
+clamped to PySceneDetect boundaries, no overlap by construction), re-scan always
+re-runs optical flow, export wording fix.
 Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power users).
 
 ---
@@ -65,10 +72,9 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
   `Export.duration_s` is already stored; just needs a column in the home page table
   and a matching header label. Noted 2026-06-26.
 
-- [ ] **Step navigation from left nav** — clicking a completed step header in the left nav
-  should jump to that step and allow proceeding forward from there. Currently the UI only
-  advances linearly; a `ready` session should allow jumping back to Scan results or Pick
-  without re-running anything. Noted 2026-06-14.
+- [x] ~~**Step navigation from left nav**~~ — Shipped 2026-06-29: forward-pass pipeline
+  head model; all nav disabled while any stage is running; completed steps navigable
+  after pipeline advances past them.
 
 - [ ] **Peak and scene boundary overlay on the proxy player** — when reviewing a clip,
   show the peak moment and scene boundaries as visual markers overlaid on the video
@@ -184,6 +190,15 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
     Currently the UI re-derives state from file presence, which caused sessions to revert
     to "create working copy" after a cache directory move. Noted 2026-06-20.
 
+- [ ] **Cross-session proxy cache** — if two sessions reference the same source file,
+  build the proxy once and share it. Key proxies by source path + mtime (or file hash)
+  rather than clip UUID; symlink `proxy/{clip_id}.mp4` → `proxy_cache/{source_hash}.mp4`.
+  `clean_session_cache(include_proxies=True)` removes the symlink (safe); a separate
+  `avs clean --deep` prunes the central cache of entries no session references anymore.
+  Also handles the orphaned-segment problem: `avs clean --deep` should sweep all segment
+  files and delete any whose mark ID no longer exists in the DB (264 orphaned files / 9 GB
+  accumulated in testing before the first manual sweep — worth automating). Noted 2026-06-29.
+
 - [ ] Crash/restart robustness (stage completion is inferred, not recorded)
   - [ ] Proxy: `all_proxies_done` is file-existence-based; an app kill mid-build
         leaves a half-written proxy file that reads as "done" on restart and
@@ -202,21 +217,11 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
 - [ ] Reliability and performance
   - [x] ~~Parallel segment encoding (4 workers)~~
   - [x] ~~Validate encoded segment cache before use (ffprobe check, delete corrupt files)~~
-  - [ ] **Clip boundary overlap / scene-aware clip model** — assembled output shows a
-    brief repeated-action glitch at cuts, caused by fixed pre/post windows around peaks
-    that can overlap when two peaks are close together. Root fix is a new clip model:
-
-    Current model: peak ± fixed pre/post → can overlap adjacent clips.
-    Proposed model (see `brainstorm/clip-selection-model.md`):
-    - PySceneDetect boundary = maximum extent a clip can reach (hard ceiling)
-    - Optical flow peak within the scene = anchor point
-    - Pre/post padding scales linearly with normalised peak score (high score → more
-      context; low score → tight window), clamped to the scene boundary
-    - Two clips in adjacent scenes can never overlap by construction
-
-    This also enables the target-duration feature: clips are variable-length but
-    non-overlapping, so greedy fill by descending score hits any target duration cleanly.
-    Noted 2026-06-20. Design detail in `brainstorm/clip-selection-model.md`.
+  - [x] ~~**Clip boundary overlap / scene-aware clip model**~~ — Shipped 2026-06-29:
+    `_detect_clip_peaks` uses score-proportional pre/post windows clamped to
+    PySceneDetect scene boundaries; `normalised_score`, `scene_start`, `scene_end`
+    stored on each Mark. Adjacent clips can never overlap by construction.
+    Design detail in `brainstorm/clip-selection-model.md`.
 - [ ] Progress and estimates
   - [x] ~~Progress bar for segment encoding (N of M segments)~~ — combine bar in the UI
   - [ ] **Suppress terminal noise from combine stage; add on_event hook** —
@@ -228,8 +233,10 @@ Demoted: CLI refactor — revisit if/when power users appear (→ CLI — power 
     (→ CLI — power users)
   - [x] ~~Progress bar and time estimate for export encode (ffmpeg pipe → `out_time_ms`)~~
 - [ ] Cleanup
-  - [ ] Delete `segments/encoded/` after successful export (grade is baked in, stale on grade change)
-  - [ ] `avs clean <session_id>` command for manual cache cleanup
+  - [x] ~~Delete `segments/encoded/` after successful export~~ — Shipped 2026-06-29:
+    `export_session` calls `clean_session_cache(session_id)` on success.
+  - [x] ~~`avs clean <session_id>` command for manual cache cleanup~~ — Shipped 2026-06-29:
+    deletes segments + encoded; `--proxies` flag also removes proxy videos.
 
 ---
 

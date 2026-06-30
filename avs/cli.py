@@ -292,3 +292,28 @@ def profile(
         console.print(f"  Music energy : {p.music_energy}")
         console.print(f"  YT duration  : {p.target_duration_youtube_s}s")
         console.print(f"  Overlays     : speed={p.overlay_speed} altitude={p.overlay_altitude}")
+
+
+@app.command()
+def clean(
+    session_id: str = typer.Argument(..., help="Session ID to clean"),
+    proxies: bool = typer.Option(False, "--proxies", help="Also delete proxy video files and thumbnails"),
+) -> None:
+    """Delete cached segment files for a session (segments and encoded clips).
+
+    Safe to run at any time — the pipeline will regenerate what it needs.
+    Use --proxies to also remove proxy videos (expensive to regenerate).
+    """
+    _startup()
+    from avs.engine.sessions import clean_session_cache, get_session as eng_get_session
+    sess = eng_get_session(session_id)
+    if sess is None:
+        console.print(f"[red]Session not found:[/red] {session_id}")
+        raise typer.Exit(1)
+    counts = clean_session_cache(session_id, include_proxies=proxies)
+    console.print(f"[green]Cleaned[/green] session {session_id[:8]}…")
+    console.print(f"  Segments removed : {counts['segments']}")
+    console.print(f"  Encoded removed  : {counts['encoded']}")
+    console.print(f"  Preview removed  : {counts['preview']}")
+    if proxies:
+        console.print(f"  Proxies removed  : {counts['proxies']}")

@@ -726,6 +726,7 @@ Still possible later: global cache dir, custom FFmpeg path.
 ## Open Questions
 
 1. **Proxy storage strategy:** Generate proxies eagerly at ingest or lazily on first analysis run? Eager is better UX; lazy saves disk for abandoned sessions.
+2. **Directory layout — XDG split vs single folder:** Currently follows XDG Base Directory spec: DB in `~/.local/share/avs/`, all cache files (proxies, segments, previews) in `~/.cache/avs/`. Rationale: external tools (bleachbit, backups) know `~/.cache/` is safe to wipe. Considered alternative: single `~/.avs/` folder with `data/` and `cache/` subdirs — simpler, one place to look, no practical downside for a personal desktop tool. Decision deferred; consolidation is a config-only change with a migration note if we do it later.
 2. **GoPro chapter joining:** Virtual join (treat as one logical clip, stitch only at assembly) or physical join at ingest time (ffmpeg concat demuxer, takes time upfront)?
 3. **Music licensing:** Confirm Free Music Archive and ccMixter have appropriate CC0 / CC-BY tracks for the sports needed.
 4. **LUT sources:** Commission, adapt open-source packs, or generate via FFmpeg eq/curves parameters? Open-source LUT packs (e.g. from Lutify.me free tier) may be usable with attribution.
