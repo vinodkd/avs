@@ -61,7 +61,7 @@ Any action camera that records standard MP4 or MOV files works. aVs reads the vi
 
 ## CLI usage
 
-For power users who prefer the terminal. The CLI lags behind the UI in capability — review and combine are best done via the UI. Use `avs ui` to launch it.
+For power users who prefer the terminal. All steps run from the terminal; `avs review` opens a local browser page for clip picking — no app install required.
 
 ```bash
 # 1. Import footage from an SD card or folder
